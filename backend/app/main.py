@@ -8,6 +8,9 @@ from . import models, schemas
 from .matching import calculate_match
 from .ai import generate_dispatcher_answer
 from .maps import compute_route
+from .heuristics import generate_demo_loads, STATE_BY_CITY
+from .messaging import send_email, send_sms
+import re
 
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
@@ -19,6 +22,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+
+def extract_voice_details(transcript: str):
+    text = transcript or ""
+    lower = text.lower()
+    unit_match = re.search(r"(?:truck|unit)\s*#?\s*([A-Za-z]{0,3}[- ]?\d{2,5})", text, re.I)
+    origin_match = re.search(r"(?:empty in|in|at|from)\s+([A-Z][a-zA-Z .-]+?)(?:\s+(?:at|tomorrow|today|going|heading|to|with|dry|reefer|flatbed|box|power)|[,.]|$)", text, re.I)
+    dest_match = re.search(r"(?:to|toward|back to|heading to|going to)\s+([A-Z][a-zA-Z .-]+?)(?:\s+(?:at|tomorrow|today|with|dry|reefer|flatbed|box|power)|[,.]|$)", text, re.I)
+    trailer = "Dry Van"
+    if "reefer" in lower: trailer = "Reefer"
+    elif "flatbed" in lower: trailer = "Flatbed"
+    elif "power only" in lower: trailer = "Power Only"
+    elif "box truck" in lower or "box" in lower: trailer = "Box Truck"
+    origin = (origin_match.group(1).strip().title() if origin_match else "Houston")
+    destination = (dest_match.group(1).strip().title() if dest_match else "Dallas")
+    unit = (unit_match.group(1).replace(" ", "-").upper() if unit_match else "TX-104")
+    if unit.isdigit(): unit = f"TX-{unit}"
+    return {
+        "unit_number": unit,
+        "current_city": origin,
+        "current_state": STATE_BY_CITY.get(origin, "TX"),
+        "desired_destination_city": destination,
+        "desired_destination_state": STATE_BY_CITY.get(destination, "TX"),
+        "trailer_type": trailer,
+        "available_at": "Tomorrow 9 AM",
+        "prompt": f"{text}\n\nExtracted by Empty Mile AI: truck {unit}, origin {origin}, destination {destination}, equipment {trailer}. Generate and rank return loads, then provide broker and driver next steps."
+    }
 
 def seed(db: Session):
     if db.query(models.Company).count() > 0:
@@ -153,6 +184,30 @@ def api_create_load(payload: schemas.LoadCreate, db: Session = Depends(get_db)):
 @app.post("/api/ai/dispatcher", response_model=schemas.ChatResponse)
 async def api_dispatcher(payload: schemas.ChatRequest, db: Session = Depends(get_db)):
     return await chat(payload, db)
+
+
+@app.post("/api/voice/extract", response_model=schemas.VoiceExtractResponse)
+def api_voice_extract(payload: schemas.VoiceExtractRequest):
+    return extract_voice_details(payload.transcript)
+
+@app.post("/api/loads/generate", response_model=list[schemas.LoadOut])
+def api_generate_loads(payload: schemas.GenerateLoadsRequest, db: Session = Depends(get_db)):
+    # Keep existing real/user-entered loads; add heuristic test loads for the current lane.
+    count = max(1, min(payload.count, 100))
+    rows = generate_demo_loads(payload.origin_city, payload.origin_state, payload.destination_city, payload.trailer_type, count)
+    db.add_all(rows)
+    db.commit()
+    for row in rows:
+        db.refresh(row)
+    return rows
+
+@app.post("/api/messages/email", response_model=schemas.MessageSendResponse)
+async def api_send_email(payload: schemas.MessageSendRequest):
+    return await send_email(payload.to, payload.subject or "Empty Mile AI Load Inquiry", payload.body)
+
+@app.post("/api/messages/sms", response_model=schemas.MessageSendResponse)
+async def api_send_sms(payload: schemas.MessageSendRequest):
+    return await send_sms(payload.to, payload.body)
 
 @app.post("/documents", response_model=schemas.DocumentOut)
 async def upload_document(doc_type: str = Form(...), load_id: int | None = Form(None), file: UploadFile = File(...), db: Session = Depends(get_db)):

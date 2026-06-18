@@ -1,6 +1,7 @@
 {
   "name": "empty-mile-ai-frontend",
-  "version": "2.0.0",
+  "version": "2.1.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

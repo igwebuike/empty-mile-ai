@@ -70,6 +70,7 @@ function App(){
   const [listening,setListening]=useState(false);
   const [voiceSupported,setVoiceSupported]=useState(true);
   const [panel,setPanel]=useState('dashboard');
+  const [sendStatus,setSendStatus]=useState('');
   const recognitionRef = useRef(null);
   const best = useMemo(()=>matches?.[0], [matches]);
 
@@ -95,11 +96,31 @@ function App(){
     }catch{}
   }
 
+  async function ensureTruckAndLoads(customMessage=message){
+    // 1) Save the current spoken/typed truck details
+    const truck = await api('/api/trucks',{method:'POST',body:JSON.stringify({...truckForm, company_id:1})});
+    // 2) Generate realistic heuristic marketplace loads for this lane
+    await api('/api/loads/generate',{method:'POST',body:JSON.stringify({
+      origin_city: truckForm.current_city,
+      origin_state: truckForm.current_state,
+      destination_city: truckForm.desired_destination_city,
+      trailer_type: truckForm.trailer_type,
+      count: 24
+    })});
+    // 3) Match, rank and ask AI for dispatcher recommendation
+    const ranked = await api(`/match/${truck.id}`,{method:'POST'});
+    const data = await api('/api/ai/dispatcher',{method:'POST',body:JSON.stringify({message:customMessage,truck_id:truck.id})});
+    await refresh();
+    return {data, ranked};
+  }
+
   async function askDispatcher(customMessage=message){
-    setBusy(true); setAnswer('');
+    setBusy(true); setAnswer(''); setSendStatus('');
     try{
-      const data = await api('/api/ai/dispatcher',{method:'POST',body:JSON.stringify({message:customMessage,truck_id:trucks[0]?.id})});
-      setAnswer(data.answer); setMatches(data.matches || []); speak(data.answer);
+      const {data, ranked} = await ensureTruckAndLoads(customMessage);
+      setAnswer(data.answer);
+      setMatches(data.matches?.length ? data.matches : ranked || []);
+      speak(data.answer);
     }catch(err){
       const msg = `AI dispatcher error: ${err.message}`;
       setAnswer(msg);
@@ -107,11 +128,17 @@ function App(){
   }
 
   async function runMatches(){
-    const truck = trucks[0];
-    if(!truck){ await refresh(); return; }
-    setBusy(true);
-    try{ const data = await api(`/match/${truck.id}`,{method:'POST'}); setMatches(data || []); }
-    finally{setBusy(false)}
+    setBusy(true); setSendStatus('');
+    try{
+      await api('/api/loads/generate',{method:'POST',body:JSON.stringify({
+        origin_city: truckForm.current_city, origin_state: truckForm.current_state,
+        destination_city: truckForm.desired_destination_city, trailer_type: truckForm.trailer_type, count: 24
+      })});
+      let truck = trucks[0];
+      if(!truck){ truck = await api('/api/trucks',{method:'POST',body:JSON.stringify({...truckForm, company_id:1})}); }
+      const data = await api(`/match/${truck.id}`,{method:'POST'});
+      setMatches(data || []); await refresh();
+    } finally{setBusy(false)}
   }
 
   function startVoice(){
@@ -125,12 +152,20 @@ function App(){
     rec.onend = () => setListening(false);
     rec.onresult = async (event) => {
       const transcript = event.results?.[0]?.[0]?.transcript || '';
-      const parsed = parseVoiceToTruck(transcript);
-      const nextForm = {...truckForm, unit_number:parsed.unit, trailer_type:parsed.trailer, current_city:parsed.origin, desired_destination_city:parsed.destination, available_at:'Tomorrow 9 AM'};
-      setTruckForm(nextForm);
-      const prompt = `${transcript}\n\nUse these extracted details: truck ${parsed.unit}, current city ${parsed.origin}, destination ${parsed.destination}, trailer type ${parsed.trailer}. Rank available return loads and recommend the next dispatcher action.`;
-      setMessage(prompt);
-      await askDispatcher(prompt);
+      try{
+        const extracted = await api('/api/voice/extract',{method:'POST',body:JSON.stringify({transcript})});
+        const nextForm = {...truckForm, ...extracted, truck_type:'Box Truck', capacity_lbs:12000, mpg:8};
+        setTruckForm(nextForm);
+        setMessage(extracted.prompt);
+        await askDispatcher(extracted.prompt);
+      }catch{
+        const parsed = parseVoiceToTruck(transcript);
+        const nextForm = {...truckForm, unit_number:parsed.unit, trailer_type:parsed.trailer, current_city:parsed.origin, desired_destination_city:parsed.destination, available_at:'Tomorrow 9 AM'};
+        setTruckForm(nextForm);
+        const prompt = `${transcript}\n\nUse these extracted details: truck ${parsed.unit}, current city ${parsed.origin}, destination ${parsed.destination}, trailer type ${parsed.trailer}. Rank available return loads and recommend the next dispatcher action.`;
+        setMessage(prompt);
+        await askDispatcher(prompt);
+      }
     };
     rec.start();
   }
@@ -214,8 +249,8 @@ function App(){
 
       <section className="bottomGrid">
         <div className="glassCard"><div className="cardTitle"><h2>Top Load Recommendations</h2><button onClick={runMatches}><ChevronRight size={18}/></button></div><div className="recommendations">{matches.length ? matches.slice(0,4).map((m,i)=><MatchCard key={i} m={m} i={i} compact />) : loads.map((l)=><LoadTile key={l.id} l={l}/>)}</div></div>
-        <div className="glassCard"><h2>Broker Email Draft</h2><pre>{brokerEmail || 'Ask the dispatcher to rank a load. The broker email will generate here.'}</pre></div>
-        <div className="glassCard"><h2>Driver Message Draft</h2><pre>{driverMessage || 'Ask the dispatcher to rank a load. The driver message will generate here.'}</pre></div>
+        <div className="glassCard"><div className="cardTitle"><h2>Broker Email Draft</h2><button onClick={sendBrokerEmail} disabled={!brokerEmail || busy}><Mail size={17}/>Send</button></div><pre>{brokerEmail || 'Ask the dispatcher to rank a load. The broker email will generate here.'}</pre></div>
+        <div className="glassCard"><div className="cardTitle"><h2>Driver Message Draft</h2><button onClick={sendDriverSms} disabled={!driverMessage || busy}><MessageSquare size={17}/>SMS</button></div><pre>{driverMessage || 'Ask the dispatcher to rank a load. The driver message will generate here.'}</pre>{sendStatus && <p className="sendStatus">{sendStatus}</p>}</div>
       </section>
     </section>
   </div>

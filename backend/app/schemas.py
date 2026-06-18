@@ -94,3 +94,37 @@ class DocumentOut(BaseModel):
     filename: str
     parsed_summary: str | None = None
     class Config: from_attributes = True
+
+
+class GenerateLoadsRequest(BaseModel):
+    origin_city: str = "Houston"
+    origin_state: str = "TX"
+    destination_city: str | None = "Dallas"
+    trailer_type: str = "Dry Van"
+    count: int = 18
+
+class MessageSendRequest(BaseModel):
+    to: str
+    subject: str | None = None
+    body: str
+
+class MessageSendResponse(BaseModel):
+    status: str
+    channel: str
+    detail: str | None = None
+    to: str | None = None
+    subject: str | None = None
+    provider_response: dict | None = None
+
+class VoiceExtractRequest(BaseModel):
+    transcript: str
+
+class VoiceExtractResponse(BaseModel):
+    unit_number: str
+    current_city: str
+    current_state: str
+    desired_destination_city: str
+    desired_destination_state: str
+    trailer_type: str
+    available_at: str
+    prompt: str

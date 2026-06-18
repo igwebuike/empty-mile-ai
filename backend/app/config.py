@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     directions_api_key: str | None = None
     distance_matrix_api_key: str | None = None
 
+    # Messaging providers. If these are blank, the API returns mock_sent so the MVP can be tested safely.
+    resend_api_key: str | None = None
+    from_email: str = "dispatch@emptymileai.com"
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_number: str | None = None
+
     default_fuel_price: float = 3.65
     default_mpg: float = 7.0
     default_driver_cost_per_mile: float = 0.65
