@@ -56,7 +56,10 @@ CORS_ORIGINS=http://localhost:5173,https://your-frontend.onrender.com
 Frontend Render env:
 
 ```env
-VITE_API_BASE_URL=https://your-backend.onrender.com
+VITE_API_BASE_URL=https://empty-mile-ai-api.onrender.com
+VITE_GOOGLE_MAPS_API_KEY=your_google_maps_javascript_key
+VITE_DEMO_BROKER_EMAIL=broker@example.com
+VITE_DEMO_DRIVER_PHONE=+15550100
 ```
 
 ## Voice command examples
@@ -72,3 +75,17 @@ The UI will fill truck/unit/location/destination/trailer fields and ask the AI d
 ## Security note
 
 If keys were ever shown in screenshots, regenerate/rotate them before using them in Render. Never commit real keys to GitHub.
+
+
+## Fixes included in this build
+
+- Voice button records speech, extracts dispatch details, and auto-runs the dispatch flow.
+- AI Dispatcher calls the backend Gemini endpoint.
+- Load cards auto-populate after voice, ask, or match actions.
+- Broker Email button calls `/api/messages/email` using Resend when configured, otherwise returns `mock_sent`.
+- Driver SMS button calls `/api/messages/sms` using Twilio when configured, otherwise returns `mock_sent`.
+- Fleet map loads Google Maps when `VITE_GOOGLE_MAPS_API_KEY` is set and falls back to the styled demo map when not set.
+- Backend `/health` route is available.
+- Backend schemas include safe defaults to prevent common 422 errors from missing fields.
+- Frontend defaults to `https://empty-mile-ai-api.onrender.com` unless `VITE_API_BASE_URL` is provided.
+- Render-safe package versions and build outputs are included.

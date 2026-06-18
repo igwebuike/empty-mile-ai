@@ -43,6 +43,46 @@ function MatchCard({m, i, compact=false}){
 
 function LoadTile({l}){return <div className="loadTile"><b>{l.shipper_name}</b><p>{l.origin_city}, {l.origin_state} → {l.destination_city}, {l.destination_state}</p><small>{money(l.rate)} · {Number(l.weight_lbs||0).toLocaleString()} lbs · {l.trailer_type}</small></div>}
 
+function FleetMap({truckForm, best}){
+  const mapRef = useRef(null);
+  const mapObj = useRef(null);
+  const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  useEffect(()=>{
+    if(!key || !mapRef.current) return;
+    const src = `https://maps.googleapis.com/maps/api/js?key=${key}`;
+    const ensureScript = () => new Promise((resolve,reject)=>{
+      if(window.google?.maps) return resolve();
+      let script = document.querySelector(`script[src="${src}"]`);
+      if(!script){ script = document.createElement('script'); script.src = src; script.async = true; script.onerror = reject; document.head.appendChild(script); }
+      script.addEventListener('load', resolve, {once:true});
+    });
+    ensureScript().then(()=>{
+      const google = window.google;
+      const center = {lat:29.7604,lng:-95.3698};
+      mapObj.current = new google.maps.Map(mapRef.current,{center,zoom:6,mapTypeControl:false,streetViewControl:false,fullscreenControl:false});
+      const geocoder = new google.maps.Geocoder();
+      const origin = `${truckForm.current_city || 'Houston'}, ${truckForm.current_state || 'TX'}`;
+      const destination = `${best?.load?.destination_city || truckForm.desired_destination_city || 'Dallas'}, ${best?.load?.destination_state || truckForm.desired_destination_state || 'TX'}`;
+      Promise.all([origin,destination].map(address => geocoder.geocode({address}).then(r => r.results?.[0]?.geometry?.location).catch(()=>null))).then(points=>{
+        const [o,d] = points;
+        if(o){ new google.maps.Marker({position:o,map:mapObj.current,label:'T',title:`Truck ${truckForm.unit_number}`}); mapObj.current.setCenter(o); }
+        if(d){ new google.maps.Marker({position:d,map:mapObj.current,label:'L',title:'Recommended load destination'}); }
+        if(o && d){
+          new google.maps.Polyline({path:[o,d],geodesic:true,strokeOpacity:.9,strokeWeight:5,map:mapObj.current});
+          const bounds = new google.maps.LatLngBounds(); bounds.extend(o); bounds.extend(d); mapObj.current.fitBounds(bounds);
+        }
+      });
+    }).catch(()=>{});
+  },[key, truckForm.current_city, truckForm.current_state, truckForm.desired_destination_city, truckForm.desired_destination_state, truckForm.unit_number, best?.load?.destination_city, best?.load?.destination_state]);
+  if(key) return <div ref={mapRef} className="googleMap"></div>;
+  return <div className="mapMock">
+    <span className="city dallas">DALLAS</span><span className="city waco">WACO</span><span className="city austin">AUSTIN</span><span className="city houston">HOUSTON</span>
+    <svg viewBox="0 0 600 420" preserveAspectRatio="none"><path d="M470 370 C420 330 410 285 390 245 C360 190 315 175 280 145 C240 110 220 70 180 40"/><circle cx="470" cy="370" r="10"/><circle cx="180" cy="40" r="10"/><circle cx="330" cy="210" r="9"/></svg>
+    <div className="mapZoom"><button>+</button><button>-</button></div>
+  </div>
+}
+
+
 function parseVoiceToTruck(text){
   const lower = text.toLowerCase();
   const cityMatch = text.match(/(?:in|at|from)\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:at|tomorrow|today|going|heading|to|with|dry|box|reefer|flatbed)|[,.]|$)/i);
@@ -177,6 +217,34 @@ function App(){
     finally{ setBusy(false); }
   }
 
+  async function sendBrokerEmail(){
+    if(!best) return;
+    setBusy(true); setSendStatus('');
+    try{
+      const raw = brokerEmail.replace(/^Subject:\s*.*?\n\n/s,'');
+      const res = await api('/api/messages/email',{method:'POST',body:JSON.stringify({
+        to: import.meta.env.VITE_DEMO_BROKER_EMAIL || 'broker@example.com',
+        subject: `Interested in ${best.load.origin_city} to ${best.load.destination_city} Load`,
+        body: raw
+      })});
+      setSendStatus(`Broker email ${res.status || 'sent'} via ${res.channel || 'email'}.`);
+    }catch(err){ setSendStatus(`Broker email failed: ${err.message}`); }
+    finally{ setBusy(false); }
+  }
+
+  async function sendDriverSms(){
+    if(!best) return;
+    setBusy(true); setSendStatus('');
+    try{
+      const res = await api('/api/messages/sms',{method:'POST',body:JSON.stringify({
+        to: import.meta.env.VITE_DEMO_DRIVER_PHONE || '+15550100',
+        body: driverMessage
+      })});
+      setSendStatus(`Driver SMS ${res.status || 'sent'} via ${res.channel || 'sms'}.`);
+    }catch(err){ setSendStatus(`Driver SMS failed: ${err.message}`); }
+    finally{ setBusy(false); }
+  }
+
   const brokerEmail = best ? `Subject: Interested in ${best.load.origin_city} to ${best.load.destination_city} Load\n\nHi, I have a ${truckForm.trailer_type} available near ${truckForm.current_city}, ${truckForm.current_state}. Empty Mile AI ranked your ${best.load.origin_city} to ${best.load.destination_city} load as a strong fit. Please send rate confirmation, commodity, pickup address, appointment details, and detention terms.\n\nThank you.` : '';
   const driverMessage = best ? `Return load found: ${best.load.origin_city} to ${best.load.destination_city}. Rate ${money(best.load.rate)}. Est. profit ${money(best.estimated_profit)}. Pickup: ${best.load.pickup_time || 'confirming'}. Stand by for rate confirmation.` : '';
 
@@ -234,11 +302,7 @@ function App(){
 
         <div className="glassCard mapCard">
           <div className="cardTitle"><h2>Live Fleet Map</h2><select><option>All Trucks</option></select></div>
-          <div className="mapMock">
-            <span className="city dallas">DALLAS</span><span className="city waco">WACO</span><span className="city austin">AUSTIN</span><span className="city houston">HOUSTON</span>
-            <svg viewBox="0 0 600 420" preserveAspectRatio="none"><path d="M470 370 C420 330 410 285 390 245 C360 190 315 175 280 145 C240 110 220 70 180 40"/><circle cx="470" cy="370" r="10"/><circle cx="180" cy="40" r="10"/><circle cx="330" cy="210" r="9"/></svg>
-            <div className="mapZoom"><button>+</button><button>-</button></div>
-          </div>
+          <FleetMap truckForm={truckForm} best={best} />
         </div>
 
         <div className="glassCard activityCard">

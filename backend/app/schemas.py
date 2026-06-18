@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class CompanyCreate(BaseModel):
     name: str
@@ -18,15 +18,15 @@ class DriverOut(DriverCreate):
 class TruckCreate(BaseModel):
     company_id: int = 1
     driver_id: int | None = None
-    unit_number: str
+    unit_number: str = "TX-104"
     truck_type: str = "Box Truck"
     trailer_type: str = "Dry Van"
     capacity_lbs: float = 10000
-    current_city: str
-    current_state: str
-    desired_destination_city: str | None = None
-    desired_destination_state: str | None = None
-    available_at: str | None = None
+    current_city: str = "Houston"
+    current_state: str = "TX"
+    desired_destination_city: str | None = "Dallas"
+    desired_destination_state: str | None = "TX"
+    available_at: str | None = "Tomorrow 9 AM"
     status: str = "available"
     mpg: float = 7.0
 class TruckOut(TruckCreate):
@@ -35,11 +35,11 @@ class TruckOut(TruckCreate):
 
 class LoadCreate(BaseModel):
     company_id: int | None = 1
-    shipper_name: str | None = None
-    origin_city: str
-    origin_state: str
-    destination_city: str
-    destination_state: str
+    shipper_name: str | None = "Demo Broker"
+    origin_city: str = "Houston"
+    origin_state: str = "TX"
+    destination_city: str = "Dallas"
+    destination_state: str = "TX"
     pickup_time: str | None = None
     delivery_time: str | None = None
     trailer_type: str = "Dry Van"
@@ -67,17 +67,17 @@ class MatchOut(BaseModel):
     class Config: from_attributes = True
 
 class ChatRequest(BaseModel):
-    message: str
+    message: str = "Find the best return load."
     truck_id: int | None = None
 class ChatResponse(BaseModel):
     answer: str
     matches: list[MatchOut] = []
 
 class RouteRequest(BaseModel):
-    origin_city: str
-    origin_state: str
-    destination_city: str
-    destination_state: str
+    origin_city: str = "Houston"
+    origin_state: str = "TX"
+    destination_city: str = "Dallas"
+    destination_state: str = "TX"
 
 class RouteResponse(BaseModel):
     origin: str
@@ -104,9 +104,9 @@ class GenerateLoadsRequest(BaseModel):
     count: int = 18
 
 class MessageSendRequest(BaseModel):
-    to: str
+    to: str = "demo@example.com"
     subject: str | None = None
-    body: str
+    body: str = "Empty Mile AI message"
 
 class MessageSendResponse(BaseModel):
     status: str
@@ -117,7 +117,7 @@ class MessageSendResponse(BaseModel):
     provider_response: dict | None = None
 
 class VoiceExtractRequest(BaseModel):
-    transcript: str
+    transcript: str = "Truck 104 is empty in Houston and needs a return load to Dallas."
 
 class VoiceExtractResponse(BaseModel):
     unit_number: str
