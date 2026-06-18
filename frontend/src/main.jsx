@@ -151,7 +151,7 @@ function App(){
       origin_state: truckForm.current_state,
       destination_city: truckForm.desired_destination_city,
       trailer_type: truckForm.trailer_type,
-      count: 24
+      count: 12
     })});
     // 3) Match, rank and ask AI for dispatcher recommendation
     const ranked = await api(`/match/${truck.id}`,{method:'POST'});
@@ -160,16 +160,31 @@ function App(){
     return {data, ranked};
   }
 
+  function fallbackDispatcherAnswer(ranked=[]){
+    const top = ranked?.[0];
+    if(!top?.load) return 'I could not reach the AI endpoint, but the dispatcher workflow is still online. Save the truck and click Find Best Loads again.';
+    return `I found the best return load for ${userName}. ${top.load.origin_city} to ${top.load.destination_city} pays ${money(top.load.rate)} with estimated profit ${money(top.estimated_profit)} and about ${Number(top.load.deadhead_miles || top.empty_miles_saved || 0).toFixed(0)} deadhead miles. Next step: send the broker email, confirm pickup appointment and detention terms, then text the driver.`;
+  }
+
   async function askDispatcher(customMessage=message){
     setBusy(true); setAnswer(''); setSendStatus('');
+    let ranked = [];
     try{
-      const {data, ranked} = await ensureTruckAndLoads(customMessage);
-      setAnswer(data.answer);
-      setMatches(data.matches?.length ? data.matches : ranked || []);
-      speak(data.answer);
+      const result = await ensureTruckAndLoads(customMessage);
+      ranked = result.ranked || [];
+      const data = result.data || {};
+      const finalMatches = data.matches?.length ? data.matches : ranked;
+      const finalAnswer = data.answer || fallbackDispatcherAnswer(finalMatches);
+      setAnswer(finalAnswer);
+      setMatches(finalMatches || []);
+      speak(finalAnswer);
     }catch(err){
-      const msg = `AI dispatcher error: ${err.message}`;
-      setAnswer(msg);
+      // Never leave the dispatcher broken on a browser fetch/CORS/provider issue.
+      // The app still shows ranked heuristic matches and talks back with the fallback answer.
+      const fallback = fallbackDispatcherAnswer(ranked);
+      setAnswer(fallback);
+      setSendStatus(`Dispatcher AI fallback used: ${err.message}`);
+      speak(fallback);
     }finally{setBusy(false)}
   }
 
@@ -178,7 +193,7 @@ function App(){
     try{
       await api('/api/loads/generate',{method:'POST',body:JSON.stringify({
         origin_city: truckForm.current_city, origin_state: truckForm.current_state,
-        destination_city: truckForm.desired_destination_city, trailer_type: truckForm.trailer_type, count: 24
+        destination_city: truckForm.desired_destination_city, trailer_type: truckForm.trailer_type, count: 12
       })});
       let truck = trucks[0];
       if(!truck){ truck = await api('/api/trucks',{method:'POST',body:JSON.stringify({...truckForm, company_id:1})}); }
@@ -367,7 +382,7 @@ function App(){
       </section>}
 
       {(panel==='dashboard' || panel==='dispatcher' || panel==='loads' || panel==='messages') && <section className="bottomGrid">
-        <div className="glassCard"><div className="cardTitle"><h2>Top Load Recommendations</h2><button onClick={runMatches}><ChevronRight size={18}/></button></div><div className="recommendations">{matches.length ? matches.slice(0,4).map((m,i)=><MatchCard key={i} m={m} i={i} compact />) : loads.map((l)=><LoadTile key={l.id} l={l}/>)}</div></div>
+        <div className="glassCard"><div className="cardTitle"><h2>Top Load Recommendations</h2><button onClick={runMatches}><ChevronRight size={18}/></button></div><div className="recommendations">{matches.length ? matches.slice(0,6).map((m,i)=><MatchCard key={i} m={m} i={i} compact />) : loads.slice(0,8).map((l)=><LoadTile key={l.id} l={l}/>)}</div></div>
         <div className="glassCard"><div className="cardTitle"><h2>Broker Email Draft</h2><button onClick={sendBrokerEmail} disabled={!brokerEmail || busy}><Mail size={17}/>Send</button></div><pre>{brokerEmail || 'Ask the dispatcher to rank a load. The broker email will generate here.'}</pre></div>
         <div className="glassCard"><div className="cardTitle"><h2>Driver Message Draft</h2><button onClick={sendDriverSms} disabled={!driverMessage || busy}><MessageSquare size={17}/>SMS</button></div><pre>{driverMessage || 'Ask the dispatcher to rank a load. The driver message will generate here.'}</pre>{sendStatus && <p className="sendStatus">{sendStatus}</p>}</div>
       </section>}

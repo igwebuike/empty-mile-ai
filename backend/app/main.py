@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, UploadFile, File, Form
+from fastapi import FastAPI, Depends, UploadFile, File, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -85,6 +85,13 @@ def on_startup():
         seed(db)
     finally:
         db.close()
+
+
+@app.options("/{rest_of_path:path}")
+def preflight_handler(rest_of_path: str):
+    # Extra safety for Render/browser preflight requests. CORSMiddleware handles this,
+    # but this keeps OPTIONS from ever returning 400 during MVP testing.
+    return Response(status_code=204)
 
 @app.get("/")
 def root():
@@ -207,8 +214,15 @@ def api_voice_extract(payload: schemas.VoiceExtractRequest):
 
 @app.post("/api/loads/generate", response_model=list[schemas.LoadOut])
 def api_generate_loads(payload: schemas.GenerateLoadsRequest, db: Session = Depends(get_db)):
-    # Keep existing real/user-entered loads; add heuristic test loads for the current lane.
-    count = max(1, min(payload.count, 100))
+    # Keep the demo clean: remove old AI-generated test loads for this lane before adding fresh ones.
+    db.query(models.Load).filter(
+        models.Load.notes.like("AI-generated test load%"),
+        models.Load.origin_city == payload.origin_city,
+        models.Load.origin_state == payload.origin_state,
+        models.Load.destination_city == payload.destination_city,
+        models.Load.trailer_type == payload.trailer_type,
+    ).delete(synchronize_session=False)
+    count = max(1, min(payload.count, 16))
     rows = generate_demo_loads(payload.origin_city, payload.origin_state, payload.destination_city, payload.trailer_type, count)
     db.add_all(rows)
     db.commit()
