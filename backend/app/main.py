@@ -15,12 +15,22 @@ import re
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
 app = FastAPI(title=settings.app_name, version="1.0.0")
+
+# CORS FIX FOR RENDER + BROWSER PREFLIGHTS
+# Render/Vite frontends send OPTIONS preflight requests before POST/GET calls.
+# Use CORS_ORIGINS="*" for MVP testing, or set it to a comma-separated list of frontend URLs.
+# Example production value:
+# CORS_ORIGINS=https://empty-mile-ai.onrender.com,https://yourdomain.com,http://localhost:5173
+cors_origin_list = [o.strip() for o in (settings.cors_origins or "*").split(",") if o.strip()]
+allow_all_origins = "*" in cors_origin_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
-    allow_credentials=True,
+    allow_origins=["*"] if allow_all_origins else cors_origin_list,
+    allow_credentials=False if allow_all_origins else True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 
@@ -76,11 +86,16 @@ def on_startup():
     finally:
         db.close()
 
+@app.get("/")
+def root():
+    return {"status": "ok", "app": settings.app_name, "docs": "/docs", "health": "/health"}
+
 @app.get("/health")
 def health():
     return {"status": "ok", "app": settings.app_name}
 
 @app.get("/dashboard")
+@app.get("/api/dashboard")
 def dashboard(db: Session = Depends(get_db)):
     trucks = db.query(models.Truck).count()
     loads = db.query(models.Load).filter(models.Load.status == "available").count()

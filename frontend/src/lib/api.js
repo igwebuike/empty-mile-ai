@@ -1,4 +1,4 @@
-export const API = (import.meta.env.VITE_API_BASE_URL || 'https://empty-mile-ai-api.onrender.com').replace(/\/$/, '');
+export const API = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || 'https://empty-mile-ai-api.onrender.com').replace(/\/$/, '');
 export async function api(path, options={}) {
   const res = await fetch(`${API}${path}`, {
     headers: {'Content-Type': 'application/json', ...(options.headers||{})},
