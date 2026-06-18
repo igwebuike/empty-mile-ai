@@ -231,3 +231,33 @@ async def upload_document(doc_type: str = Form(...), load_id: int | None = Form(
     row = models.Document(load_id=load_id, doc_type=doc_type, filename=file.filename, parsed_summary=summary)
     db.add(row); db.commit(); db.refresh(row)
     return row
+
+
+@app.get("/documents", response_model=list[schemas.DocumentOut])
+@app.get("/api/documents", response_model=list[schemas.DocumentOut])
+def list_documents(db: Session = Depends(get_db)):
+    return db.query(models.Document).order_by(models.Document.id.desc()).all()
+
+@app.post("/api/documents/upload", response_model=schemas.DocumentOut)
+async def api_upload_document(doc_type: str = Form(...), load_id: int | None = Form(None), file: UploadFile = File(...), db: Session = Depends(get_db)):
+    return await upload_document(doc_type, load_id, file, db)
+
+@app.post("/api/documents/send-packet", response_model=schemas.MessageSendResponse)
+async def api_send_document_packet(payload: schemas.DocumentPacketRequest, db: Session = Depends(get_db)):
+    docs = db.query(models.Document).order_by(models.Document.id.desc()).limit(50).all()
+    doc_lines = "\n".join([f"- {d.doc_type}: {d.filename}" for d in docs]) or "- No documents uploaded yet."
+    body = payload.body or f"""Hello,
+
+Please see the carrier document packet summary from Empty Mile AI.
+
+Carrier: {payload.carrier_name}
+Dispatcher: {payload.dispatcher_name}
+Load/Lane: {payload.lane}
+
+Documents on file:
+{doc_lines}
+
+Empty Mile AI can resend individual files or rate confirmations as needed.
+
+Thank you."""
+    return await send_email(payload.to, payload.subject or f"Carrier packet - {payload.carrier_name}", body)

@@ -128,3 +128,12 @@ class VoiceExtractResponse(BaseModel):
     trailer_type: str
     available_at: str
     prompt: str
+
+
+class DocumentPacketRequest(BaseModel):
+    to: str = "broker@example.com"
+    subject: str | None = None
+    body: str | None = None
+    carrier_name: str = "Demo Logistics LLC"
+    dispatcher_name: str = "Dispatcher"
+    lane: str = "Houston TX to Dallas TX"

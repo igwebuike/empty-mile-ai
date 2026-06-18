@@ -6,7 +6,7 @@ import {
   Activity, Bell, Bot, Box, ChevronRight, Clock, DollarSign, FileText, Fuel,
   LayoutDashboard, Mail, Map, MapPin, Menu, MessageSquare, Mic, MicOff,
   Navigation, Package, Route, Send, Settings, ShieldCheck, Sparkles, TrendingUp,
-  Truck, UserRound, Volume2, X
+  Truck, UserRound, Volume2, X, UploadCloud, Building2, CheckCircle2, Download, UserCog
 } from 'lucide-react';
 
 const DEFAULT_PROMPT = 'Truck 104 is empty in Houston at 9 AM tomorrow. Find the most profitable return load to Dallas.';
@@ -21,7 +21,7 @@ function StatCard({icon:Icon,label,value,delta,tone='cyan'}){
   </div>
 }
 
-function SideItem({icon:Icon,label,active}){return <div className={`sideItem ${active?'active':''}`}><Icon size={19}/><span>{label}</span></div>}
+function SideItem({icon:Icon,label,active,onClick}){return <button type="button" onClick={onClick} className={`sideItem ${active?'active':''}`}><Icon size={19}/><span>{label}</span></button>}
 
 function MatchCard({m, i, compact=false}){
   const load = m.load || {};
@@ -111,8 +111,14 @@ function App(){
   const [voiceSupported,setVoiceSupported]=useState(true);
   const [panel,setPanel]=useState('dashboard');
   const [sendStatus,setSendStatus]=useState('');
+  const [documents,setDocuments]=useState([]);
+  const [uploading,setUploading]=useState(false);
+  const [profile,setProfile]=useState(()=>{try{return JSON.parse(localStorage.getItem('emptyMileProfile')||'{}')}catch{return {}}});
+  const [talkBack,setTalkBack]=useState(()=>localStorage.getItem('emptyMileTalkBack') !== 'off');
   const recognitionRef = useRef(null);
   const best = useMemo(()=>matches?.[0], [matches]);
+  const userName = profile.name || 'Dispatcher';
+  const companyName = profile.company || 'Demo Logistics LLC';
 
   const [truckForm,setTruckForm]=useState({
     unit_number:'TX-104', truck_type:'Box Truck', trailer_type:'Dry Van', capacity_lbs:12000,
@@ -121,14 +127,14 @@ function App(){
   });
 
   async function refresh(){
-    const [d,t,l] = await Promise.all([api('/dashboard'), api('/trucks'), api('/loads')]);
-    setDashboard(d); setTrucks(t); setLoads(l);
+    const [d,t,l,docs] = await Promise.all([api('/dashboard'), api('/trucks'), api('/loads'), api('/api/documents').catch(()=>[])]);
+    setDashboard(d); setTrucks(t); setLoads(l); setDocuments(docs||[]);
   }
   useEffect(()=>{refresh().catch(console.error)},[]);
 
   function speak(text){
     try{
-      if(!('speechSynthesis' in window) || !text) return;
+      if(!talkBack || !('speechSynthesis' in window) || !text) return;
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text.replace(/[$]/g,' dollars '));
       u.rate = 0.95; u.pitch = 1;
@@ -217,6 +223,55 @@ function App(){
     finally{ setBusy(false); }
   }
 
+
+  function saveProfile(next){
+    setProfile(next);
+    localStorage.setItem('emptyMileProfile', JSON.stringify(next));
+    speak(`Profile saved for ${next.name || 'dispatcher'}. I will personalize this dashboard for you.`);
+  }
+
+  function toggleTalkBack(){
+    const next = !talkBack;
+    setTalkBack(next);
+    localStorage.setItem('emptyMileTalkBack', next ? 'on' : 'off');
+    if(next) setTimeout(()=>speak('Talk back is on. I can read dispatcher recommendations aloud.'), 100);
+  }
+
+  async function uploadDocument(e){
+    e.preventDefault();
+    const form = e.currentTarget;
+    const file = form.file.files?.[0];
+    if(!file) return;
+    setUploading(true); setSendStatus('');
+    try{
+      const fd = new FormData();
+      fd.append('doc_type', form.doc_type.value);
+      fd.append('file', file);
+      const doc = await api('/api/documents/upload',{method:'POST',body:fd});
+      setDocuments([doc, ...documents]);
+      form.reset();
+      setSendStatus(`${doc.doc_type} uploaded: ${doc.filename}`);
+      speak(`${doc.doc_type} uploaded. I will keep it ready for broker packets.`);
+    }catch(err){ setSendStatus(`Upload failed: ${err.message}`); }
+    finally{ setUploading(false); }
+  }
+
+  async function sendCarrierPacket(){
+    setBusy(true); setSendStatus('');
+    try{
+      const lane = best?.load ? `${best.load.origin_city}, ${best.load.origin_state} to ${best.load.destination_city}, ${best.load.destination_state}` : `${truckForm.current_city}, ${truckForm.current_state} to ${truckForm.desired_destination_city}, ${truckForm.desired_destination_state}`;
+      const res = await api('/api/documents/send-packet',{method:'POST',body:JSON.stringify({
+        to: import.meta.env.VITE_DEMO_BROKER_EMAIL || profile.brokerEmail || 'broker@example.com',
+        carrier_name: companyName,
+        dispatcher_name: userName,
+        lane
+      })});
+      setSendStatus(`Carrier packet ${res.status || 'sent'} to broker.`);
+      speak('Carrier packet sent to the broker.');
+    }catch(err){ setSendStatus(`Carrier packet failed: ${err.message}`); }
+    finally{ setBusy(false); }
+  }
+
   async function sendBrokerEmail(){
     if(!best) return;
     setBusy(true); setSendStatus('');
@@ -245,22 +300,22 @@ function App(){
     finally{ setBusy(false); }
   }
 
-  const brokerEmail = best ? `Subject: Interested in ${best.load.origin_city} to ${best.load.destination_city} Load\n\nHi, I have a ${truckForm.trailer_type} available near ${truckForm.current_city}, ${truckForm.current_state}. Empty Mile AI ranked your ${best.load.origin_city} to ${best.load.destination_city} load as a strong fit. Please send rate confirmation, commodity, pickup address, appointment details, and detention terms.\n\nThank you.` : '';
+  const brokerEmail = best ? `Subject: Interested in ${best.load.origin_city} to ${best.load.destination_city} Load\n\nHi, this is ${userName} with ${companyName}. I have a ${truckForm.trailer_type} available near ${truckForm.current_city}, ${truckForm.current_state}. Empty Mile AI ranked your ${best.load.origin_city} to ${best.load.destination_city} load as a strong fit. Please send rate confirmation, commodity, pickup address, appointment details, and detention terms.\n\nThank you.` : '';
   const driverMessage = best ? `Return load found: ${best.load.origin_city} to ${best.load.destination_city}. Rate ${money(best.load.rate)}. Est. profit ${money(best.estimated_profit)}. Pickup: ${best.load.pickup_time || 'confirming'}. Stand by for rate confirmation.` : '';
 
   return <div className="appShell">
     <aside className="sidebar">
       <div className="logoMark"><div className="hex"><Bot size={26}/></div><div><b>EMPTY MILE AI</b><span>AI Powered Freight Optimization</span></div></div>
       <nav>
-        <SideItem icon={LayoutDashboard} label="Dashboard" active={panel==='dashboard'} />
-        <SideItem icon={Sparkles} label="AI Dispatcher" />
-        <SideItem icon={Package} label="Loads" />
-        <SideItem icon={Truck} label="Fleet" />
-        <SideItem icon={Map} label="Map" />
-        <SideItem icon={Activity} label="Analytics" />
-        <SideItem icon={Mail} label="Messages" />
-        <SideItem icon={FileText} label="Documents" />
-        <SideItem icon={Settings} label="Settings" />
+        <SideItem icon={LayoutDashboard} label="Dashboard" active={panel==='dashboard'} onClick={()=>setPanel('dashboard')} />
+        <SideItem icon={Sparkles} label="AI Dispatcher" active={panel==='dispatcher'} onClick={()=>setPanel('dispatcher')} />
+        <SideItem icon={Package} label="Loads" active={panel==='loads'} onClick={()=>setPanel('loads')} />
+        <SideItem icon={Truck} label="Fleet" active={panel==='fleet'} onClick={()=>setPanel('fleet')} />
+        <SideItem icon={Map} label="Map" active={panel==='map'} onClick={()=>setPanel('map')} />
+        <SideItem icon={Activity} label="Analytics" active={panel==='analytics'} onClick={()=>setPanel('analytics')} />
+        <SideItem icon={Mail} label="Messages" active={panel==='messages'} onClick={()=>setPanel('messages')} />
+        <SideItem icon={FileText} label="Documents" active={panel==='documents'} onClick={()=>setPanel('documents')} />
+        <SideItem icon={Settings} label="Settings" active={panel==='settings'} onClick={()=>setPanel('settings')} />
       </nav>
       <div className="statusCard"><span className="greenDot"></span><b>System Status</b><p>Gemini, Maps, and dispatcher tools ready.</p><div className="miniRobot"><Bot size={34}/></div></div>
     </aside>
@@ -273,11 +328,11 @@ function App(){
           <div><b>{listening?'Listening...':'Voice Command Ready'}</b><small>{voiceSupported?'Tap and say: Truck 104 is empty in Houston, find Dallas return load':'Voice not supported in this browser'}</small></div>
           <div className="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </div>
-        <div className="topActions"><button><Bell size={20}/><em>3</em></button><button><ShieldCheck size={20}/></button><div className="profile"><UserRound size={23}/><div><b>Dispatcher</b><small>Houston Ops</small></div></div></div>
+        <div className="topActions"><button onClick={toggleTalkBack} title="Talk back"><Volume2 size={20}/></button><button><Bell size={20}/><em>3</em></button><button><ShieldCheck size={20}/></button><div className="profile"><UserRound size={23}/><div><b>{userName}</b><small>{profile.base || 'Houston Ops'}</small></div></div></div>
       </header>
 
       <div className="heroStrip">
-        <div><h1>Welcome back, Dispatcher</h1><p>Optimize empty miles. Maximize profit. Let the AI listen, fill the truck details, and recommend the best return load.</p></div>
+        <div><h1>Welcome back, {userName}</h1><p>{companyName} command center. Optimize empty miles. Maximize profit. Let the AI listen, fill the truck details, and recommend the best return load.</p></div>
         <button onClick={runMatches} disabled={busy}><Sparkles size={18}/>{busy?'Working...':'Find Best Loads'}</button>
       </div>
 
@@ -289,7 +344,7 @@ function App(){
         <StatCard icon={TrendingUp} label="Profit per Load" value="$842" delta="Avg. this week" tone="green" />
       </section>
 
-      <section className="contentGrid">
+      {(panel==='dashboard' || panel==='dispatcher' || panel==='map') && <section className="contentGrid">
         <div className="glassCard dispatcherCard">
           <div className="cardTitle"><h2><Sparkles size={21}/> AI Dispatcher</h2><span className="enabled">Voice Enabled</span><button onClick={()=>setAnswer('')}><X size={17}/></button></div>
           <div className="promptBox"><textarea value={message} onChange={e=>setMessage(e.target.value)} /><button onClick={()=>askDispatcher()} disabled={busy}><Send size={17}/>{busy?'Thinking...':'Ask'}</button></div>
@@ -309,13 +364,21 @@ function App(){
           <h2>Recent Activity</h2>
           {['New load matched Houston → Dallas','Truck 107 updated location: Austin, TX','Load delivered San Antonio, TX','Rate confirmation uploaded'].map((x,i)=><div className="activity" key={x}><span>{i===0?<Package size={16}/>:i===1?<Truck size={16}/>:i===2?<ShieldCheck size={16}/>:<FileText size={16}/>}</span><p>{x}</p><small>{i===0?'2m ago':i===1?'15m ago':i===2?'1h ago':'2h ago'}</small></div>)}
         </div>
-      </section>
+      </section>}
 
-      <section className="bottomGrid">
+      {(panel==='dashboard' || panel==='dispatcher' || panel==='loads' || panel==='messages') && <section className="bottomGrid">
         <div className="glassCard"><div className="cardTitle"><h2>Top Load Recommendations</h2><button onClick={runMatches}><ChevronRight size={18}/></button></div><div className="recommendations">{matches.length ? matches.slice(0,4).map((m,i)=><MatchCard key={i} m={m} i={i} compact />) : loads.map((l)=><LoadTile key={l.id} l={l}/>)}</div></div>
         <div className="glassCard"><div className="cardTitle"><h2>Broker Email Draft</h2><button onClick={sendBrokerEmail} disabled={!brokerEmail || busy}><Mail size={17}/>Send</button></div><pre>{brokerEmail || 'Ask the dispatcher to rank a load. The broker email will generate here.'}</pre></div>
         <div className="glassCard"><div className="cardTitle"><h2>Driver Message Draft</h2><button onClick={sendDriverSms} disabled={!driverMessage || busy}><MessageSquare size={17}/>SMS</button></div><pre>{driverMessage || 'Ask the dispatcher to rank a load. The driver message will generate here.'}</pre>{sendStatus && <p className="sendStatus">{sendStatus}</p>}</div>
-      </section>
+      </section>}
+
+      {panel==='documents' && <section className="pageGrid"><div className="glassCard wide"><div className="cardTitle"><h2><UploadCloud size={22}/> Carrier Document Vault</h2><button onClick={sendCarrierPacket} disabled={busy}><Mail size={17}/> Send Packet</button></div><p className="muted">Upload driver license, insurance, authority, registration, W-9, rate confirmation, POD, and broker setup documents once. The AI can reuse them when emailing companies.</p><form className="uploadForm" onSubmit={uploadDocument}><select name="doc_type"><option>Driver License</option><option>Insurance</option><option>Authority / MC Certificate</option><option>Registration</option><option>W-9</option><option>Rate Confirmation</option><option>Proof of Delivery</option><option>Broker Packet</option><option>Other</option></select><input name="file" type="file"/><button disabled={uploading}><UploadCloud size={17}/>{uploading?'Uploading...':'Upload'}</button></form><div className="docGrid">{documents.length ? documents.map(d=><div className="docCard" key={d.id}><FileText size={24}/><b>{d.doc_type}</b><p>{d.filename}</p><small>{d.parsed_summary}</small></div>) : <div className="emptyState"><FileText size={34}/><b>No documents uploaded yet.</b><p>Add your required carrier documents here.</p></div>}</div></div></section>}
+
+      {panel==='settings' && <section className="pageGrid"><div className="glassCard wide"><div className="cardTitle"><h2><UserCog size={22}/> User Dashboard Settings</h2><button onClick={()=>saveProfile(profile)}><CheckCircle2 size={17}/>Save</button></div><div className="profileForm"><label>Your Name<input value={profile.name||''} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Eugene / Dispatcher name"/></label><label>Company<input value={profile.company||''} onChange={e=>setProfile({...profile,company:e.target.value})} placeholder="Your carrier company"/></label><label>Base / Terminal<input value={profile.base||''} onChange={e=>setProfile({...profile,base:e.target.value})} placeholder="Houston Ops"/></label><label>Broker Email<input value={profile.brokerEmail||''} onChange={e=>setProfile({...profile,brokerEmail:e.target.value})} placeholder="broker@example.com"/></label></div><p className="muted">This is saved in this browser for now. Next step is adding login so every carrier has a secure private dashboard.</p></div></section>}
+
+      {(panel==='fleet' || panel==='analytics') && <section className="pageGrid"><div className="glassCard wide"><h2>{panel==='fleet'?'Fleet':'Analytics'}</h2><div className="docGrid"><div className="docCard"><Truck size={24}/><b>{trucks.length} Trucks</b><p>Saved trucks and voice-captured units.</p></div><div className="docCard"><Package size={24}/><b>{loads.length} Loads</b><p>Generated and available load options.</p></div><div className="docCard"><TrendingUp size={24}/><b>{money(dashboard.estimated_revenue_recovered||0)}</b><p>Estimated recovered profit.</p></div></div></div></section>}
+
+      {sendStatus && <div className="toast">{sendStatus}</div>}
     </section>
   </div>
 }
