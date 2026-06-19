@@ -1,91 +1,51 @@
-# Empty Mile AI - Voice Dispatcher MVP
+# Empty Mile AI — World-Class MVP Rebuild
 
-A Render-ready logistics AI MVP for reducing empty return miles.
+AI-native logistics platform for dispatchers, drivers, documents, messaging, voice commands, maps, and heuristic load matching.
 
-## What is included
+## Backend Render service
+Root Directory: `backend`
+Build Command: `pip install -r requirements.txt`
+Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
-- Sleek logistics dashboard UI inspired by the warehouse/robot interface
-- Voice command support using browser Web Speech API
-- Gemini-powered AI dispatcher
-- Google Maps route/profit support with fallback demo logic
-- Fleet KPIs, load recommendations, AI response, broker email draft, and driver message draft
-- FastAPI backend + Vite React frontend
-
-## Local backend
-
-```bash
-cd backend
-python -m venv .venv
-.venv\Scripts\activate   # Windows
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+Recommended envs:
 ```
-
-Backend docs:
-
-```text
-http://localhost:8000/docs
-```
-
-## Local frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Frontend:
-
-```text
-http://localhost:5173
-```
-
-## Environment variables
-
-Backend Render env:
-
-```env
-GEMINI_API_KEY=your_rotated_gemini_key
-GEMINI_MODEL=gemini-2.5-flash
-GOOGLE_MAPS_API_KEY=your_rotated_maps_key
 DATABASE_URL=sqlite:///./empty_mile_ai.db
-CORS_ORIGINS=http://localhost:5173,https://your-frontend.onrender.com
+CORS_ORIGINS=*
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.5-flash
+GOOGLE_MAPS_API_KEY=
+ROUTES_API_KEY=
+RESEND_API_KEY=
+FROM_EMAIL=dispatch@emptymileai.com
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
 ```
 
-Frontend Render env:
+## Frontend Render static site
+Root Directory: `frontend`
+Build Command: `npm install && npm run build`
+Publish Directory: `dist`
 
-```env
-VITE_API_BASE_URL=https://empty-mile-ai-api.onrender.com
-VITE_GOOGLE_MAPS_API_KEY=your_google_maps_javascript_key
-VITE_DEMO_BROKER_EMAIL=broker@example.com
-VITE_DEMO_DRIVER_PHONE=+15550100
+Recommended envs:
+```
+VITE_API_BASE_URL=https://api.emptymileai.com
+VITE_GOOGLE_MAPS_API_KEY=
+VITE_TEST_EMAIL=
+VITE_TEST_PHONE=
 ```
 
-## Voice command examples
-
-Say:
-
-```text
-Truck 104 is empty in Houston at 9 AM tomorrow. Find the most profitable return load to Dallas.
-```
-
-The UI will fill truck/unit/location/destination/trailer fields and ask the AI dispatcher for a recommendation.
-
-## Security note
-
-If keys were ever shown in screenshots, regenerate/rotate them before using them in Render. Never commit real keys to GitHub.
-
-
-## Fixes included in this build
-
-- Voice button records speech, extracts dispatch details, and auto-runs the dispatch flow.
-- AI Dispatcher calls the backend Gemini endpoint.
-- Load cards auto-populate after voice, ask, or match actions.
-- Broker Email button calls `/api/messages/email` using Resend when configured, otherwise returns `mock_sent`.
-- Driver SMS button calls `/api/messages/sms` using Twilio when configured, otherwise returns `mock_sent`.
-- Fleet map loads Google Maps when `VITE_GOOGLE_MAPS_API_KEY` is set and falls back to the styled demo map when not set.
-- Backend `/health` route is available.
-- Backend schemas include safe defaults to prevent common 422 errors from missing fields.
-- Frontend defaults to `https://empty-mile-ai-api.onrender.com` unless `VITE_API_BASE_URL` is provided.
-- Render-safe package versions and build outputs are included.
+## Included features
+- Login / create workspace demo flow
+- Role-aware dashboards: Admin, Dispatcher, Driver, Broker
+- AI-first dispatcher command center
+- Browser speech recognition
+- Voice extraction via backend
+- Heuristic load generator
+- Load recommendations and broker/driver drafts
+- Resend email endpoint integration
+- Twilio SMS endpoint integration
+- Document Hub with upload endpoint
+- Messaging center for driver/broker/shipper
+- Google Maps embed when key is configured
+- Render-safe dependency pins

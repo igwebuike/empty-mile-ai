@@ -1,401 +1,260 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
-import { createRoot } from 'react-dom/client';
-import { api } from './lib/api';
-import './styles.css';
+import React, {useMemo, useRef, useState, useEffect} from 'react';
+import {createRoot} from 'react-dom/client';
 import {
-  Activity, Bell, Bot, Box, ChevronRight, Clock, DollarSign, FileText, Fuel,
-  LayoutDashboard, Mail, Map, MapPin, Menu, MessageSquare, Mic, MicOff,
-  Navigation, Package, Route, Send, Settings, ShieldCheck, Sparkles, TrendingUp,
-  Truck, UserRound, Volume2, X, UploadCloud, Building2, CheckCircle2, Download, UserCog
+  Bot, Mic, Send, Mail, MessageSquare, Phone, Upload, FileText, Truck, Users, MapPin,
+  Package, ShieldCheck, Settings, LogOut, Building2, ClipboardList, Route, Bell, Search,
+  Home, Plus, Sparkles, CalendarClock, DollarSign, Gauge, UserRound, CheckCircle2,
+  AlertTriangle, Loader2, Navigation, Headphones, Paperclip, FolderOpen
 } from 'lucide-react';
+import './styles.css';
+import {API, api} from './lib/api';
 
-const DEFAULT_PROMPT = 'Truck 104 is empty in Houston at 9 AM tomorrow. Find the most profitable return load to Dallas.';
+const GOOGLE_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+const TEST_EMAIL = import.meta.env.VITE_TEST_EMAIL || 'eugene.ebem@gmail.com';
+const TEST_PHONE = import.meta.env.VITE_TEST_PHONE || '+16822437381';
 
-function money(v){return `$${Number(v||0).toLocaleString(undefined,{maximumFractionDigits:0})}`}
-function pct(v){return `${Number(v||0).toFixed(0)}%`}
+const demoUser = {
+  name: 'Eugene',
+  email: 'eugene.ebem@gmail.com',
+  role: 'Dispatcher',
+  company: 'Demo Logistics LLC',
+  market: 'Houston Ops',
+  truck: 'TX-104'
+};
 
-function StatCard({icon:Icon,label,value,delta,tone='cyan'}){
-  return <div className={`statCard ${tone}`}>
-    <div><p>{label}</p><h2>{value}</h2>{delta && <small>{delta}</small>}</div>
-    <span className="statIcon"><Icon size={24}/></span>
-  </div>
-}
+const rolePermissions = {
+  Admin: ['home','ai','loads','drivers','documents','messages','map','settings'],
+  Dispatcher: ['home','ai','loads','drivers','documents','messages','map','settings'],
+  Driver: ['home','ai','documents','messages','map','settings'],
+  Broker: ['home','loads','documents','messages','settings']
+};
 
-function SideItem({icon:Icon,label,active,onClick}){return <button type="button" onClick={onClick} className={`sideItem ${active?'active':''}`}><Icon size={19}/><span>{label}</span></button>}
+const quickPrompts = [
+  'Truck 104 is empty in Houston at 9 AM tomorrow. Find the best Dallas return load.',
+  'Text the driver the top Dallas load and route summary.',
+  'Email the broker asking if the Houston to Dallas load is still available.',
+  'Upload my carrier packet and check which documents are missing.'
+];
 
-function MatchCard({m, i, compact=false}){
-  const load = m.load || {};
-  return <div className={`matchCard ${compact?'compact':''}`}>
-    <div className="matchHead">
-      <div className="routeLine"><MapPin size={17}/><b>{load.origin_city || 'Houston'}, {load.origin_state || 'TX'} → {load.destination_city || 'Dallas'}, {load.destination_state || 'TX'}</b></div>
-      <span>{pct(m.score || 0)} Match</span>
+function classNames(...parts){ return parts.filter(Boolean).join(' '); }
+
+function money(n){ return `$${Number(n || 0).toLocaleString(undefined,{maximumFractionDigits:0})}`; }
+function num(n){ return Number(n || 0).toLocaleString(undefined,{maximumFractionDigits:0}); }
+function cityState(city,state){ return [city,state].filter(Boolean).join(', '); }
+
+function LoginScreen({onLogin}){
+  const [mode,setMode] = useState('login');
+  const [form,setForm] = useState({...demoUser, password:'demo123', fleetSize:'24', mcNumber:'MC-TEST'});
+  return <div className="auth-page">
+    <div className="auth-art">
+      <div className="brand-mark"><Bot size={34}/></div>
+      <h1>Empty Mile AI</h1>
+      <p>Voice-first dispatch, documents, messaging, maps, and AI load matching for small fleets and owner-operators.</p>
+      <div className="auth-pills">
+        <span>AI Dispatcher</span><span>Driver App</span><span>Document Hub</span><span>SMS + Email</span>
+      </div>
     </div>
-    <p>{load.trailer_type || 'Dry Van'} · {Number(load.weight_lbs||0).toLocaleString()} lbs · Pickup: {load.pickup_time || 'Confirm'}</p>
-    <div className="loadStats">
-      <div><small>Rate</small><strong>{money(load.rate)}</strong></div>
-      <div><small>Deadhead</small><strong>{Number(load.deadhead_miles || m.empty_miles_saved || 0).toFixed(0)} mi</strong></div>
-      <div><small>Est. Profit</small><strong>{money(m.estimated_profit)}</strong></div>
-      <div><small>RPM</small><strong>${m.rate_per_mile || '0.00'}/mi</strong></div>
+    <div className="auth-card">
+      <div className="switcher"><button className={mode==='login'?'active':''} onClick={()=>setMode('login')}>Login</button><button className={mode==='signup'?'active':''} onClick={()=>setMode('signup')}>Create Workspace</button></div>
+      <h2>{mode==='login'?'Welcome back':'Create your logistics workspace'}</h2>
+      <p className="muted">Demo-ready authentication. Replace with Supabase/Auth0/Clerk when ready.</p>
+      <label>Email<input value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label>
+      <label>Password<input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label>
+      {mode==='signup' && <>
+        <label>Company<input value={form.company} onChange={e=>setForm({...form,company:e.target.value})}/></label>
+        <div className="two"><label>MC/DOT<input value={form.mcNumber} onChange={e=>setForm({...form,mcNumber:e.target.value})}/></label><label>Fleet Size<input value={form.fleetSize} onChange={e=>setForm({...form,fleetSize:e.target.value})}/></label></div>
+      </>}
+      <label>Role<select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}><option>Dispatcher</option><option>Driver</option><option>Admin</option><option>Broker</option></select></label>
+      <button className="primary wide" onClick={()=>onLogin(form)}>{mode==='login'?'Login to Dashboard':'Create Workspace'}</button>
+      <div className="auth-note"><ShieldCheck size={16}/> User context will be passed to Gemini so AI recognizes each account owner, role, company, lanes, trucks, and documents.</div>
     </div>
-    {!compact && <p className="explain">{m.explanation}</p>}
   </div>
 }
 
-function LoadTile({l}){return <div className="loadTile"><b>{l.shipper_name}</b><p>{l.origin_city}, {l.origin_state} → {l.destination_city}, {l.destination_state}</p><small>{money(l.rate)} · {Number(l.weight_lbs||0).toLocaleString()} lbs · {l.trailer_type}</small></div>}
+function Sidebar({user, view, setView, onLogout}){
+  const items = [
+    ['home',Home,'Home'], ['ai',Sparkles,'Dispatch AI'], ['loads',Package,'Loads'], ['drivers',Users,'Drivers'],
+    ['documents',FolderOpen,'Documents'], ['messages',MessageSquare,'Messages'], ['map',MapPin,'Live Map'], ['settings',Settings,'Settings']
+  ].filter(([key])=>rolePermissions[user.role]?.includes(key));
+  return <aside className="sidebar">
+    <div className="logo"><div className="icon"><Bot/></div><div><h3>EMPTY MILE AI</h3><p>AI-native TMS</p></div></div>
+    <div className="workspace"><Building2 size={18}/><div><b>{user.company}</b><span>{user.role} · {user.market}</span></div></div>
+    <nav>{items.map(([key,Icon,label])=><button key={key} className={view===key?'active':''} onClick={()=>setView(key)}><Icon size={18}/>{label}</button>)}</nav>
+    <div className="system-card"><span className="green-dot"/> <b>System Ready</b><p>Gemini, maps, Resend, Twilio and docs modules are connected or safely mocked.</p></div>
+    <button className="logout" onClick={onLogout}><LogOut size={17}/>Logout</button>
+  </aside>
+}
 
-function FleetMap({truckForm, best}){
-  const mapRef = useRef(null);
-  const mapObj = useRef(null);
-  const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-  useEffect(()=>{
-    if(!key || !mapRef.current) return;
-    const src = `https://maps.googleapis.com/maps/api/js?key=${key}`;
-    const ensureScript = () => new Promise((resolve,reject)=>{
-      if(window.google?.maps) return resolve();
-      let script = document.querySelector(`script[src="${src}"]`);
-      if(!script){ script = document.createElement('script'); script.src = src; script.async = true; script.onerror = reject; document.head.appendChild(script); }
-      script.addEventListener('load', resolve, {once:true});
-    });
-    ensureScript().then(()=>{
-      const google = window.google;
-      const center = {lat:29.7604,lng:-95.3698};
-      mapObj.current = new google.maps.Map(mapRef.current,{center,zoom:6,mapTypeControl:false,streetViewControl:false,fullscreenControl:false});
-      const geocoder = new google.maps.Geocoder();
-      const origin = `${truckForm.current_city || 'Houston'}, ${truckForm.current_state || 'TX'}`;
-      const destination = `${best?.load?.destination_city || truckForm.desired_destination_city || 'Dallas'}, ${best?.load?.destination_state || truckForm.desired_destination_state || 'TX'}`;
-      Promise.all([origin,destination].map(address => geocoder.geocode({address}).then(r => r.results?.[0]?.geometry?.location).catch(()=>null))).then(points=>{
-        const [o,d] = points;
-        if(o){ new google.maps.Marker({position:o,map:mapObj.current,label:'T',title:`Truck ${truckForm.unit_number}`}); mapObj.current.setCenter(o); }
-        if(d){ new google.maps.Marker({position:d,map:mapObj.current,label:'L',title:'Recommended load destination'}); }
-        if(o && d){
-          new google.maps.Polyline({path:[o,d],geodesic:true,strokeOpacity:.9,strokeWeight:5,map:mapObj.current});
-          const bounds = new google.maps.LatLngBounds(); bounds.extend(o); bounds.extend(d); mapObj.current.fitBounds(bounds);
-        }
-      });
-    }).catch(()=>{});
-  },[key, truckForm.current_city, truckForm.current_state, truckForm.desired_destination_city, truckForm.desired_destination_state, truckForm.unit_number, best?.load?.destination_city, best?.load?.destination_state]);
-  if(key) return <div ref={mapRef} className="googleMap"></div>;
-  return <div className="mapMock">
-    <span className="city dallas">DALLAS</span><span className="city waco">WACO</span><span className="city austin">AUSTIN</span><span className="city houston">HOUSTON</span>
-    <svg viewBox="0 0 600 420" preserveAspectRatio="none"><path d="M470 370 C420 330 410 285 390 245 C360 190 315 175 280 145 C240 110 220 70 180 40"/><circle cx="470" cy="370" r="10"/><circle cx="180" cy="40" r="10"/><circle cx="330" cy="210" r="9"/></svg>
-    <div className="mapZoom"><button>+</button><button>-</button></div>
+function Header({user, onVoice, listening}){
+  return <header className="topbar">
+    <button className="menu"><Home size={18}/></button>
+    <button className={classNames('voice-command',listening && 'listening')} onClick={onVoice}>
+      {listening?<Loader2 className="spin"/>:<Mic/>}
+      <div><b>{listening?'Listening...':'Talk to Empty Mile AI'}</b><span>Say: Truck 104 is empty in Houston, find Dallas return load</span></div>
+      <div className="wave"><i/><i/><i/><i/><i/><i/></div>
+    </button>
+    <button className="round"><Bell size={18}/><em>3</em></button>
+    <div className="profile"><UserRound size={19}/><div><b>{user.name}</b><span>{user.role}</span></div></div>
+  </header>
+}
+
+function StatCard({title,value,sub,icon:Icon}){ return <div className="stat-card"><div><p>{title}</p><h2>{value}</h2><span>{sub}</span></div><Icon size={25}/></div> }
+
+function HomePage({user,setView,stats,loads,documents}){
+  return <div className="page home-page">
+    <section className="hero-clean">
+      <div><p className="eyebrow">{user.company} command center</p><h1>Good morning, {user.name}.</h1><p>What do you want Empty Mile AI to handle today?</p></div>
+      <div className="hero-actions"><button className="primary" onClick={()=>setView('ai')}><Mic size={18}/> Talk to AI</button><button className="secondary" onClick={()=>setView('documents')}><Upload size={18}/> Upload Docs</button></div>
+    </section>
+    <div className="action-grid">
+      <button onClick={()=>setView('ai')}><Sparkles/><b>Find Best Load</b><span>Voice or type a dispatch request</span></button>
+      <button onClick={()=>setView('messages')}><MessageSquare/><b>Message Driver/Broker</b><span>SMS, email, call workflows</span></button>
+      <button onClick={()=>setView('documents')}><FileText/><b>Manage Documents</b><span>Carrier packets, CDL, insurance</span></button>
+      <button onClick={()=>setView('map')}><Navigation/><b>View Fleet Map</b><span>Routes, pickups, destinations</span></button>
+    </div>
+    <div className="stats-grid">
+      <StatCard title="Active Trucks" value={stats.trucks || 1} sub="Fleet available" icon={Truck}/>
+      <StatCard title="Available Loads" value={stats.available_loads || loads.length || 3} sub="Updated just now" icon={Package}/>
+      <StatCard title="Docs Uploaded" value={documents.length} sub="Carrier packet ready" icon={FileText}/>
+      <StatCard title="Recovered Revenue" value={money(stats.estimated_revenue_recovered || 12450)} sub="Projected savings" icon={DollarSign}/>
+    </div>
+    <section className="panel"><div className="panel-head"><h3>Today's AI Recommendations</h3><button onClick={()=>setView('ai')}>Open AI</button></div><div className="rec-list"><Recommendation loads={loads}/></div></section>
   </div>
 }
 
-
-function parseVoiceToTruck(text){
-  const lower = text.toLowerCase();
-  const cityMatch = text.match(/(?:in|at|from)\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:at|tomorrow|today|going|heading|to|with|dry|box|reefer|flatbed)|[,.]|$)/i);
-  const destMatch = text.match(/(?:to|toward|back to|heading to|going to)\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:at|tomorrow|today|with|dry|box|reefer|flatbed)|[,.]|$)/i);
-  const unitMatch = text.match(/(?:truck|unit)\s*#?\s*([A-Z]{0,3}[- ]?\d{2,5})/i);
-  let trailer = 'Dry Van';
-  if(lower.includes('box truck')) trailer = 'Box Truck';
-  if(lower.includes('reefer')) trailer = 'Reefer';
-  if(lower.includes('flatbed')) trailer = 'Flatbed';
-  if(lower.includes('power only')) trailer = 'Power Only';
-  const origin = (cityMatch?.[1] || 'Houston').replace(/\s+$/,'').trim();
-  const destination = (destMatch?.[1] || 'Dallas').replace(/\s+$/,'').trim();
-  const unit = unitMatch?.[1]?.replace(' ','-').toUpperCase() || 'TX-104';
-  return {origin, destination, unit, trailer};
+function Recommendation({loads=[]}){
+  const top = loads.slice(0,3);
+  if(!top.length) return <p className="muted">Ask AI to generate return loads for your truck.</p>;
+  return top.map((l,i)=><div className="load-row" key={l.id||i}><div><b>{i+1}. {l.shipper_name || 'Broker Load'}</b><span>{cityState(l.origin_city,l.origin_state)} → {cityState(l.destination_city,l.destination_state)}</span></div><div><b>{money(l.rate)}</b><span>{num(l.loaded_miles)} mi · {l.trailer_type}</span></div></div>)
 }
+
+function DispatchAI({user, loads, setLoads, initial}){
+  const [message,setMessage] = useState('Truck 104 is empty in Houston at 9 AM tomorrow. Find the most profitable return load to Dallas.');
+  const [answer,setAnswer] = useState('Ask Empty Mile AI to rank a load. It will generate a recommendation, broker email, and driver SMS.');
+  const [truck,setTruck] = useState({unit_number:'TX-104',current_city:'Houston',current_state:'TX',desired_destination_city:'Dallas',desired_destination_state:'TX',trailer_type:'Dry Van',available_at:'Tomorrow 9 AM'});
+  const [busy,setBusy] = useState(false);
+  const [emailDraft,setEmailDraft] = useState('Ask the dispatcher to rank a load. The broker email will generate here.');
+  const [smsDraft,setSmsDraft] = useState('Ask the dispatcher to rank a load. The driver message will generate here.');
+  const [toast,setToast] = useState('');
+
+  useEffect(()=>{ if(initial){ setMessage(initial); runDispatch(initial); } }, [initial]);
+
+  async function runDispatch(input=message){
+    setBusy(true); setToast('');
+    try{
+      const extracted = await api('/api/voice/extract',{method:'POST',body:JSON.stringify({transcript:input})});
+      setTruck(extracted);
+      const generated = await api('/api/loads/generate',{method:'POST',body:JSON.stringify({
+        origin_city: extracted.current_city, origin_state: extracted.current_state,
+        destination_city: extracted.desired_destination_city, trailer_type: extracted.trailer_type, count: 10
+      })});
+      setLoads(generated);
+      const ai = await api('/api/ai/dispatcher',{method:'POST',body:JSON.stringify({message: extracted.prompt})});
+      const text = ai.answer || `I found ${generated.length} loads from ${extracted.current_city} to ${extracted.desired_destination_city}.`;
+      setAnswer(text);
+      const top = generated[0];
+      const broker = `Hello,\n\nWe have truck ${extracted.unit_number} available in ${extracted.current_city}, ${extracted.current_state} with ${extracted.trailer_type} equipment. Is your ${top?.origin_city || extracted.current_city} to ${top?.destination_city || extracted.desired_destination_city} load still available?\n\nRequested rate: ${money(top?.rate || 0)}\nPickup: ${top?.pickup_time || extracted.available_at}\n\nRegards,\n${user.name}\n${user.company}`;
+      const sms = `Empty Mile AI: ${extracted.unit_number} best load: ${top?.origin_city || extracted.current_city} to ${top?.destination_city || extracted.desired_destination_city}, ${money(top?.rate||0)}, ${top?.trailer_type || extracted.trailer_type}. Reply YES to accept.`;
+      setEmailDraft(broker); setSmsDraft(sms);
+    }catch(e){ setAnswer(`I could not complete the full workflow: ${e.message}`); }
+    finally{ setBusy(false); }
+  }
+
+  async function sendEmail(){
+    setBusy(true); try{ const res = await api('/api/messages/email',{method:'POST',body:JSON.stringify({to:TEST_EMAIL,subject:'Empty Mile AI broker inquiry',body:emailDraft})}); setToast(`Email ${res.status} to ${TEST_EMAIL}`); }catch(e){ setToast(e.message); } finally{setBusy(false)}
+  }
+  async function sendSms(){
+    setBusy(true); try{ const res = await api('/api/messages/sms',{method:'POST',body:JSON.stringify({to:TEST_PHONE,body:smsDraft})}); setToast(`SMS ${res.status} to ${TEST_PHONE}`); }catch(e){ setToast(e.message); } finally{setBusy(false)}
+  }
+
+  return <div className="page ai-page">
+    <section className="ai-command panel big">
+      <div className="panel-head"><div><h2>Ask Empty Mile AI</h2><p>One clear place to speak or type. The AI extracts truck details, generates loads, ranks them, and prepares messages.</p></div><Sparkles/></div>
+      <div className="prompt-row"><textarea value={message} onChange={e=>setMessage(e.target.value)} placeholder="Truck 104 is empty in Houston..."/><button className="primary tall" onClick={()=>runDispatch()} disabled={busy}>{busy?<Loader2 className="spin"/>:<Send/>} Run</button></div>
+      <div className="prompt-chips">{quickPrompts.map(p=><button key={p} onClick={()=>{setMessage(p);runDispatch(p)}}>{p}</button>)}</div>
+      {toast && <div className="toast">{toast}</div>}
+    </section>
+
+    <div className="workflow-grid">
+      <section className="panel"><h3>Recognized Truck</h3><div className="truck-summary"><b>{truck.unit_number}</b><span>{cityState(truck.current_city,truck.current_state)}</span><span>To {cityState(truck.desired_destination_city,truck.desired_destination_state)}</span><span>{truck.trailer_type}</span><span>{truck.available_at}</span></div></section>
+      <section className="panel"><h3>AI Recommendation</h3><p className="ai-answer">{answer}</p></section>
+    </div>
+
+    <div className="tri-grid">
+      <section className="panel"><div className="panel-head"><h3>Load Recommendations</h3><button onClick={()=>runDispatch()} disabled={busy}>Refresh</button></div><LoadCards loads={loads}/></section>
+      <section className="panel"><div className="panel-head"><h3>Broker Email</h3><button onClick={sendEmail}><Mail size={15}/> Send</button></div><textarea className="draft" value={emailDraft} onChange={e=>setEmailDraft(e.target.value)}/></section>
+      <section className="panel"><div className="panel-head"><h3>Driver Message</h3><div className="btn-row"><button onClick={sendSms}><MessageSquare size={15}/> SMS</button><a className="button" href={`tel:${TEST_PHONE}`}><Phone size={15}/> Call</a></div></div><textarea className="draft" value={smsDraft} onChange={e=>setSmsDraft(e.target.value)}/></section>
+    </div>
+  </div>
+}
+
+function LoadCards({loads}){ if(!loads?.length) return <p className="muted">No loads yet. Run the AI dispatcher.</p>; return <div className="load-cards">{loads.slice(0,6).map((l,i)=><div className="load-card" key={l.id||i}><div className="score">{Math.max(70, 98-i*4)}</div><h4>{l.shipper_name || 'Generated Load'}</h4><p>{cityState(l.origin_city,l.origin_state)} → {cityState(l.destination_city,l.destination_state)}</p><div><b>{money(l.rate)}</b><span>{num(l.loaded_miles)} mi · {l.trailer_type}</span></div></div>)}</div> }
+
+function DocumentsPage({documents,setDocuments}){
+  const [docType,setDocType] = useState('Carrier Packet');
+  const [file,setFile] = useState(null);
+  const [busy,setBusy]=useState(false); const [toast,setToast]=useState('');
+  async function upload(){ if(!file){setToast('Choose a document first.');return;} setBusy(true); const data=new FormData(); data.append('doc_type',docType); data.append('file',file); try{ const d=await api('/api/documents/upload',{method:'POST',body:data}); setDocuments([d,...documents]); setToast(`${d.filename} uploaded and indexed.`); setFile(null); }catch(e){setToast(e.message)} finally{setBusy(false)} }
+  return <div className="page docs-page">
+    <section className="panel big"><div className="panel-head"><div><h2>Document Hub</h2><p>Upload carrier packets, MC authority, W9, insurance, CDL, medical cards, truck registration, POD and BOL files.</p></div><Upload/></div>
+      <div className="doc-upload"><select value={docType} onChange={e=>setDocType(e.target.value)}>{['Carrier Packet','MC Authority','DOT Certificate','W9','Insurance','CDL','Medical Card','Truck Registration','Inspection','POD','BOL','Rate Confirmation'].map(x=><option key={x}>{x}</option>)}</select><label className="file-picker"><Paperclip/> {file?file.name:'Choose file'}<input type="file" onChange={e=>setFile(e.target.files?.[0])}/></label><button className="primary" onClick={upload} disabled={busy}>{busy?<Loader2 className="spin"/>:<Upload/>} Upload</button></div>{toast&&<div className="toast">{toast}</div>}</section>
+    <div className="doc-grid">{['Company','Drivers','Trucks','Loads'].map((group,i)=><section className="panel" key={group}><h3>{group}</h3><div className="doc-list">{documents.filter((_,idx)=>idx%4===i).slice(0,5).map(d=><div className="doc-item" key={d.id}><FileText/><div><b>{d.doc_type}</b><span>{d.filename}</span><small>{d.parsed_summary}</small></div></div>)}{!documents.filter((_,idx)=>idx%4===i).length&&<p className="muted">No documents yet.</p>}</div></section>)}</div>
+  </div>
+}
+
+function MessagesPage(){
+  const [channel,setChannel]=useState('driver'); const [msg,setMsg]=useState('Truck TX-104 assigned to Houston to Dallas load. Please confirm.'); const [toast,setToast]=useState(''); const [busy,setBusy]=useState(false);
+  async function send(type){ setBusy(true); try{ const path=type==='email'?'/api/messages/email':'/api/messages/sms'; const payload=type==='email'?{to:TEST_EMAIL,subject:'Empty Mile AI dispatch update',body:msg}:{to:TEST_PHONE,body:msg}; const r=await api(path,{method:'POST',body:JSON.stringify(payload)}); setToast(`${type.toUpperCase()} ${r.status}`);}catch(e){setToast(e.message)}finally{setBusy(false)} }
+  return <div className="page messages-page"><section className="panel big"><div className="panel-head"><div><h2>Communication Center</h2><p>Text, email, call, and voice-note workflows for drivers, brokers, and shippers.</p></div><Headphones/></div><div className="message-layout"><aside>{['driver','broker','shipper'].map(c=><button className={channel===c?'active':''} onClick={()=>setChannel(c)} key={c}><MessageSquare/> {c[0].toUpperCase()+c.slice(1)}</button>)}</aside><main><h3>{channel} conversation</h3><div className="chat-box"><div className="bubble ai">Empty Mile AI drafted the next update.</div><div className="bubble user">Please confirm pickup and ETA.</div></div><textarea value={msg} onChange={e=>setMsg(e.target.value)}/><div className="btn-row"><button className="primary" onClick={()=>send('sms')} disabled={busy}><MessageSquare/> Send SMS</button><button onClick={()=>send('email')} disabled={busy}><Mail/> Send Email</button><a className="button" href={`tel:${TEST_PHONE}`}><Phone/> Call</a></div>{toast&&<div className="toast">{toast}</div>}</main></div></section></div>
+}
+
+function MapPage({loads}){
+  const top = loads[0];
+  const origin = encodeURIComponent(`${top?.origin_city || 'Houston'}, ${top?.origin_state || 'TX'}`);
+  const dest = encodeURIComponent(`${top?.destination_city || 'Dallas'}, ${top?.destination_state || 'TX'}`);
+  const src = GOOGLE_KEY ? `https://www.google.com/maps/embed/v1/directions?key=${GOOGLE_KEY}&origin=${origin}&destination=${dest}&mode=driving` : '';
+  return <div className="page map-page"><section className="panel big"><div className="panel-head"><div><h2>Live Fleet Map</h2><p>Google Maps route layer for trucks, pickup, delivery, and deadhead mileage.</p></div><MapPin/></div>{src?<iframe title="fleet-map" className="google-map" src={src}/>:<div className="mock-map"><div className="route-line"/><span className="pin houston">Houston</span><span className="pin waco">Waco</span><span className="pin dallas">Dallas</span><p>Add VITE_GOOGLE_MAPS_API_KEY to show live Google Maps.</p></div>}</section></div>
+}
+
+function DriversPage(){ const drivers=[['James Carter','TX-104','Available','CDL valid'],['Maria Lopez','TX-107','In Transit','POD due'],['Chris Brown','TX-112','Off Duty','Medical expires soon']]; return <div className="page"><section className="panel big"><div className="panel-head"><h2>Drivers & Fleet</h2><button><Plus/> Add Driver</button></div><div className="table">{drivers.map(d=><div className="table-row" key={d[0]}><div><b>{d[0]}</b><span>{d[1]}</span></div><span className="badge">{d[2]}</span><span>{d[3]}</span><button>Open</button></div>)}</div></section></div> }
+function LoadsPage({loads}){ return <div className="page"><section className="panel big"><div className="panel-head"><h2>Loads Marketplace</h2><p>Heuristic/test loads now; DAT/Truckstop later.</p></div><LoadCards loads={loads}/></section></div> }
+function SettingsPage({user,setUser}){ return <div className="page"><section className="panel big"><h2>Workspace Settings</h2><div className="settings-grid"><label>Name<input value={user.name} onChange={e=>setUser({...user,name:e.target.value})}/></label><label>Company<input value={user.company} onChange={e=>setUser({...user,company:e.target.value})}/></label><label>Role<select value={user.role} onChange={e=>setUser({...user,role:e.target.value})}><option>Admin</option><option>Dispatcher</option><option>Driver</option><option>Broker</option></select></label><label>API Base<input value={API} readOnly/></label></div></section></div> }
 
 function App(){
-  const [dashboard,setDashboard]=useState({});
-  const [trucks,setTrucks]=useState([]);
-  const [loads,setLoads]=useState([]);
-  const [matches,setMatches]=useState([]);
-  const [message,setMessage]=useState(DEFAULT_PROMPT);
-  const [answer,setAnswer]=useState('');
-  const [busy,setBusy]=useState(false);
-  const [listening,setListening]=useState(false);
-  const [voiceSupported,setVoiceSupported]=useState(true);
-  const [panel,setPanel]=useState('dashboard');
-  const [sendStatus,setSendStatus]=useState('');
-  const [documents,setDocuments]=useState([]);
-  const [uploading,setUploading]=useState(false);
-  const [profile,setProfile]=useState(()=>{try{return JSON.parse(localStorage.getItem('emptyMileProfile')||'{}')}catch{return {}}});
-  const [talkBack,setTalkBack]=useState(()=>localStorage.getItem('emptyMileTalkBack') !== 'off');
-  const recognitionRef = useRef(null);
-  const best = useMemo(()=>matches?.[0], [matches]);
-  const userName = profile.name || 'Dispatcher';
-  const companyName = profile.company || 'Demo Logistics LLC';
+  const [user,setUser] = useState(()=>JSON.parse(localStorage.getItem('emai_user')||'null'));
+  const [view,setView] = useState('home');
+  const [stats,setStats] = useState({});
+  const [loads,setLoads] = useState([]);
+  const [documents,setDocuments] = useState([]);
+  const [listening,setListening] = useState(false);
 
-  const [truckForm,setTruckForm]=useState({
-    unit_number:'TX-104', truck_type:'Box Truck', trailer_type:'Dry Van', capacity_lbs:12000,
-    current_city:'Houston', current_state:'TX', desired_destination_city:'Dallas', desired_destination_state:'TX',
-    available_at:'Tomorrow 9 AM', mpg:8
-  });
-
-  async function refresh(){
-    const [d,t,l,docs] = await Promise.all([api('/dashboard'), api('/trucks'), api('/loads'), api('/api/documents').catch(()=>[])]);
-    setDashboard(d); setTrucks(t); setLoads(l); setDocuments(docs||[]);
-  }
-  useEffect(()=>{refresh().catch(console.error)},[]);
-
-  function speak(text){
-    try{
-      if(!talkBack || !('speechSynthesis' in window) || !text) return;
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text.replace(/[$]/g,' dollars '));
-      u.rate = 0.95; u.pitch = 1;
-      window.speechSynthesis.speak(u);
-    }catch{}
+  useEffect(()=>{ if(user){ localStorage.setItem('emai_user',JSON.stringify(user)); loadData(); } },[user]);
+  async function loadData(){ try{ const [d,l,docs]=await Promise.all([api('/api/dashboard').catch(()=>({})),api('/api/loads').catch(()=>[]),api('/api/documents').catch(()=>[])]); setStats(d); setLoads(l); setDocuments(docs); }catch{} }
+  function logout(){ localStorage.removeItem('emai_user'); setUser(null); }
+  function voiceStart(){
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!Rec){ alert('Speech recognition is not supported in this browser. Use Chrome and allow microphone access.'); return; }
+    const rec = new Rec(); rec.lang='en-US'; rec.interimResults=false; rec.continuous=false; setListening(true);
+    rec.onresult = (e)=>{ const text=e.results?.[0]?.[0]?.transcript || ''; setView('ai'); setTimeout(()=>window.dispatchEvent(new CustomEvent('emai-voice',{detail:text})),100); };
+    rec.onerror = ()=>setListening(false); rec.onend=()=>setListening(false); rec.start();
   }
 
-  async function ensureTruckAndLoads(customMessage=message){
-    // 1) Save the current spoken/typed truck details
-    const truck = await api('/api/trucks',{method:'POST',body:JSON.stringify({...truckForm, company_id:1})});
-    // 2) Generate realistic heuristic marketplace loads for this lane
-    await api('/api/loads/generate',{method:'POST',body:JSON.stringify({
-      origin_city: truckForm.current_city,
-      origin_state: truckForm.current_state,
-      destination_city: truckForm.desired_destination_city,
-      trailer_type: truckForm.trailer_type,
-      count: 12
-    })});
-    // 3) Match, rank and ask AI for dispatcher recommendation
-    const ranked = await api(`/match/${truck.id}`,{method:'POST'});
-    const data = await api('/api/ai/dispatcher',{method:'POST',body:JSON.stringify({message:customMessage,truck_id:truck.id})});
-    await refresh();
-    return {data, ranked};
-  }
+  if(!user) return <LoginScreen onLogin={(u)=>{setUser(u);setView('home')}}/>;
+  const content = view==='home'?<HomePage user={user} setView={setView} stats={stats} loads={loads} documents={documents}/>:
+    view==='ai'?<AIWrapper user={user} loads={loads} setLoads={setLoads}/>:
+    view==='documents'?<DocumentsPage documents={documents} setDocuments={setDocuments}/>:
+    view==='messages'?<MessagesPage/>:
+    view==='map'?<MapPage loads={loads}/>:
+    view==='drivers'?<DriversPage/>:
+    view==='loads'?<LoadsPage loads={loads}/>:
+    <SettingsPage user={user} setUser={setUser}/>;
+  return <div className="app-shell"><Sidebar user={user} view={view} setView={setView} onLogout={logout}/><main><Header user={user} onVoice={voiceStart} listening={listening}/>{content}</main></div>
+}
 
-  function fallbackDispatcherAnswer(ranked=[]){
-    const top = ranked?.[0];
-    if(!top?.load) return 'I could not reach the AI endpoint, but the dispatcher workflow is still online. Save the truck and click Find Best Loads again.';
-    return `I found the best return load for ${userName}. ${top.load.origin_city} to ${top.load.destination_city} pays ${money(top.load.rate)} with estimated profit ${money(top.estimated_profit)} and about ${Number(top.load.deadhead_miles || top.empty_miles_saved || 0).toFixed(0)} deadhead miles. Next step: send the broker email, confirm pickup appointment and detention terms, then text the driver.`;
-  }
-
-  async function askDispatcher(customMessage=message){
-    setBusy(true); setAnswer(''); setSendStatus('');
-    let ranked = [];
-    try{
-      const result = await ensureTruckAndLoads(customMessage);
-      ranked = result.ranked || [];
-      const data = result.data || {};
-      const finalMatches = data.matches?.length ? data.matches : ranked;
-      const finalAnswer = data.answer || fallbackDispatcherAnswer(finalMatches);
-      setAnswer(finalAnswer);
-      setMatches(finalMatches || []);
-      speak(finalAnswer);
-    }catch(err){
-      // Never leave the dispatcher broken on a browser fetch/CORS/provider issue.
-      // The app still shows ranked heuristic matches and talks back with the fallback answer.
-      const fallback = fallbackDispatcherAnswer(ranked);
-      setAnswer(fallback);
-      setSendStatus(`Dispatcher AI fallback used: ${err.message}`);
-      speak(fallback);
-    }finally{setBusy(false)}
-  }
-
-  async function runMatches(){
-    setBusy(true); setSendStatus('');
-    try{
-      await api('/api/loads/generate',{method:'POST',body:JSON.stringify({
-        origin_city: truckForm.current_city, origin_state: truckForm.current_state,
-        destination_city: truckForm.desired_destination_city, trailer_type: truckForm.trailer_type, count: 12
-      })});
-      let truck = trucks[0];
-      if(!truck){ truck = await api('/api/trucks',{method:'POST',body:JSON.stringify({...truckForm, company_id:1})}); }
-      const data = await api(`/match/${truck.id}`,{method:'POST'});
-      setMatches(data || []); await refresh();
-    } finally{setBusy(false)}
-  }
-
-  function startVoice(){
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if(!SpeechRecognition){ setVoiceSupported(false); return; }
-    const rec = new SpeechRecognition();
-    rec.lang = 'en-US'; rec.continuous = false; rec.interimResults = false;
-    recognitionRef.current = rec;
-    rec.onstart = () => setListening(true);
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    rec.onresult = async (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript || '';
-      try{
-        const extracted = await api('/api/voice/extract',{method:'POST',body:JSON.stringify({transcript})});
-        const nextForm = {...truckForm, ...extracted, truck_type:'Box Truck', capacity_lbs:12000, mpg:8};
-        setTruckForm(nextForm);
-        setMessage(extracted.prompt);
-        await askDispatcher(extracted.prompt);
-      }catch{
-        const parsed = parseVoiceToTruck(transcript);
-        const nextForm = {...truckForm, unit_number:parsed.unit, trailer_type:parsed.trailer, current_city:parsed.origin, desired_destination_city:parsed.destination, available_at:'Tomorrow 9 AM'};
-        setTruckForm(nextForm);
-        const prompt = `${transcript}\n\nUse these extracted details: truck ${parsed.unit}, current city ${parsed.origin}, destination ${parsed.destination}, trailer type ${parsed.trailer}. Rank available return loads and recommend the next dispatcher action.`;
-        setMessage(prompt);
-        await askDispatcher(prompt);
-      }
-    };
-    rec.start();
-  }
-  function stopVoice(){ recognitionRef.current?.stop(); setListening(false); }
-
-  async function saveVoiceTruck(){
-    setBusy(true);
-    try{ await api('/api/trucks',{method:'POST',body:JSON.stringify({...truckForm, company_id:1})}); await refresh(); }
-    finally{ setBusy(false); }
-  }
-
-
-  function saveProfile(next){
-    setProfile(next);
-    localStorage.setItem('emptyMileProfile', JSON.stringify(next));
-    speak(`Profile saved for ${next.name || 'dispatcher'}. I will personalize this dashboard for you.`);
-  }
-
-  function toggleTalkBack(){
-    const next = !talkBack;
-    setTalkBack(next);
-    localStorage.setItem('emptyMileTalkBack', next ? 'on' : 'off');
-    if(next) setTimeout(()=>speak('Talk back is on. I can read dispatcher recommendations aloud.'), 100);
-  }
-
-  async function uploadDocument(e){
-    e.preventDefault();
-    const form = e.currentTarget;
-    const file = form.file.files?.[0];
-    if(!file) return;
-    setUploading(true); setSendStatus('');
-    try{
-      const fd = new FormData();
-      fd.append('doc_type', form.doc_type.value);
-      fd.append('file', file);
-      const doc = await api('/api/documents/upload',{method:'POST',body:fd});
-      setDocuments([doc, ...documents]);
-      form.reset();
-      setSendStatus(`${doc.doc_type} uploaded: ${doc.filename}`);
-      speak(`${doc.doc_type} uploaded. I will keep it ready for broker packets.`);
-    }catch(err){ setSendStatus(`Upload failed: ${err.message}`); }
-    finally{ setUploading(false); }
-  }
-
-  async function sendCarrierPacket(){
-    setBusy(true); setSendStatus('');
-    try{
-      const lane = best?.load ? `${best.load.origin_city}, ${best.load.origin_state} to ${best.load.destination_city}, ${best.load.destination_state}` : `${truckForm.current_city}, ${truckForm.current_state} to ${truckForm.desired_destination_city}, ${truckForm.desired_destination_state}`;
-      const res = await api('/api/documents/send-packet',{method:'POST',body:JSON.stringify({
-        to: import.meta.env.VITE_DEMO_BROKER_EMAIL || profile.brokerEmail || 'broker@example.com',
-        carrier_name: companyName,
-        dispatcher_name: userName,
-        lane
-      })});
-      setSendStatus(`Carrier packet ${res.status || 'sent'} to broker.`);
-      speak('Carrier packet sent to the broker.');
-    }catch(err){ setSendStatus(`Carrier packet failed: ${err.message}`); }
-    finally{ setBusy(false); }
-  }
-
-  async function sendBrokerEmail(){
-    if(!best) return;
-    setBusy(true); setSendStatus('');
-    try{
-      const raw = brokerEmail.replace(/^Subject:\s*.*?\n\n/s,'');
-      const res = await api('/api/messages/email',{method:'POST',body:JSON.stringify({
-        to: import.meta.env.VITE_DEMO_BROKER_EMAIL || 'broker@example.com',
-        subject: `Interested in ${best.load.origin_city} to ${best.load.destination_city} Load`,
-        body: raw
-      })});
-      setSendStatus(`Broker email ${res.status || 'sent'} via ${res.channel || 'email'}.`);
-    }catch(err){ setSendStatus(`Broker email failed: ${err.message}`); }
-    finally{ setBusy(false); }
-  }
-
-  async function sendDriverSms(){
-    if(!best) return;
-    setBusy(true); setSendStatus('');
-    try{
-      const res = await api('/api/messages/sms',{method:'POST',body:JSON.stringify({
-        to: import.meta.env.VITE_DEMO_DRIVER_PHONE || '+15550100',
-        body: driverMessage
-      })});
-      setSendStatus(`Driver SMS ${res.status || 'sent'} via ${res.channel || 'sms'}.`);
-    }catch(err){ setSendStatus(`Driver SMS failed: ${err.message}`); }
-    finally{ setBusy(false); }
-  }
-
-  const brokerEmail = best ? `Subject: Interested in ${best.load.origin_city} to ${best.load.destination_city} Load\n\nHi, this is ${userName} with ${companyName}. I have a ${truckForm.trailer_type} available near ${truckForm.current_city}, ${truckForm.current_state}. Empty Mile AI ranked your ${best.load.origin_city} to ${best.load.destination_city} load as a strong fit. Please send rate confirmation, commodity, pickup address, appointment details, and detention terms.\n\nThank you.` : '';
-  const driverMessage = best ? `Return load found: ${best.load.origin_city} to ${best.load.destination_city}. Rate ${money(best.load.rate)}. Est. profit ${money(best.estimated_profit)}. Pickup: ${best.load.pickup_time || 'confirming'}. Stand by for rate confirmation.` : '';
-
-  return <div className="appShell">
-    <aside className="sidebar">
-      <div className="logoMark"><div className="hex"><Bot size={26}/></div><div><b>EMPTY MILE AI</b><span>AI Powered Freight Optimization</span></div></div>
-      <nav>
-        <SideItem icon={LayoutDashboard} label="Dashboard" active={panel==='dashboard'} onClick={()=>setPanel('dashboard')} />
-        <SideItem icon={Sparkles} label="AI Dispatcher" active={panel==='dispatcher'} onClick={()=>setPanel('dispatcher')} />
-        <SideItem icon={Package} label="Loads" active={panel==='loads'} onClick={()=>setPanel('loads')} />
-        <SideItem icon={Truck} label="Fleet" active={panel==='fleet'} onClick={()=>setPanel('fleet')} />
-        <SideItem icon={Map} label="Map" active={panel==='map'} onClick={()=>setPanel('map')} />
-        <SideItem icon={Activity} label="Analytics" active={panel==='analytics'} onClick={()=>setPanel('analytics')} />
-        <SideItem icon={Mail} label="Messages" active={panel==='messages'} onClick={()=>setPanel('messages')} />
-        <SideItem icon={FileText} label="Documents" active={panel==='documents'} onClick={()=>setPanel('documents')} />
-        <SideItem icon={Settings} label="Settings" active={panel==='settings'} onClick={()=>setPanel('settings')} />
-      </nav>
-      <div className="statusCard"><span className="greenDot"></span><b>System Status</b><p>Gemini, Maps, and dispatcher tools ready.</p><div className="miniRobot"><Bot size={34}/></div></div>
-    </aside>
-
-    <section className="mainPanel">
-      <header className="topbar">
-        <button className="menuBtn"><Menu size={21}/></button>
-        <div className={`voicePill ${listening?'live':''}`} onClick={listening?stopVoice:startVoice}>
-          <span className="micCircle">{listening?<MicOff size={25}/>:<Mic size={25}/>}</span>
-          <div><b>{listening?'Listening...':'Voice Command Ready'}</b><small>{voiceSupported?'Tap and say: Truck 104 is empty in Houston, find Dallas return load':'Voice not supported in this browser'}</small></div>
-          <div className="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-        </div>
-        <div className="topActions"><button onClick={toggleTalkBack} title="Talk back"><Volume2 size={20}/></button><button><Bell size={20}/><em>3</em></button><button><ShieldCheck size={20}/></button><div className="profile"><UserRound size={23}/><div><b>{userName}</b><small>{profile.base || 'Houston Ops'}</small></div></div></div>
-      </header>
-
-      <div className="heroStrip">
-        <div><h1>Welcome back, {userName}</h1><p>{companyName} command center. Optimize empty miles. Maximize profit. Let the AI listen, fill the truck details, and recommend the best return load.</p></div>
-        <button onClick={runMatches} disabled={busy}><Sparkles size={18}/>{busy?'Working...':'Find Best Loads'}</button>
-      </div>
-
-      <section className="statGrid">
-        <StatCard icon={DollarSign} label="Revenue Recovered" value={money(dashboard.estimated_revenue_recovered || 12450)} delta="+18.6% vs last 7 days" tone="green" />
-        <StatCard icon={Route} label="Empty Miles Saved" value={`${Number(dashboard.empty_miles_saved || 1248).toLocaleString()} mi`} delta="+14.3% vs last 7 days" />
-        <StatCard icon={Truck} label="Active Trucks" value={dashboard.trucks || 24} delta="+4 vs yesterday" tone="blue" />
-        <StatCard icon={Box} label="Available Loads" value={dashboard.available_loads || 15} delta="Updated just now" />
-        <StatCard icon={TrendingUp} label="Profit per Load" value="$842" delta="Avg. this week" tone="green" />
-      </section>
-
-      {(panel==='dashboard' || panel==='dispatcher' || panel==='map') && <section className="contentGrid">
-        <div className="glassCard dispatcherCard">
-          <div className="cardTitle"><h2><Sparkles size={21}/> AI Dispatcher</h2><span className="enabled">Voice Enabled</span><button onClick={()=>setAnswer('')}><X size={17}/></button></div>
-          <div className="promptBox"><textarea value={message} onChange={e=>setMessage(e.target.value)} /><button onClick={()=>askDispatcher()} disabled={busy}><Send size={17}/>{busy?'Thinking...':'Ask'}</button></div>
-          <div className="voiceExtract">
-            <div><small>Unit</small><b>{truckForm.unit_number}</b></div><div><small>Location</small><b>{truckForm.current_city}, {truckForm.current_state}</b></div><div><small>Destination</small><b>{truckForm.desired_destination_city}, {truckForm.desired_destination_state}</b></div><div><small>Trailer</small><b>{truckForm.trailer_type}</b></div>
-            <button onClick={saveVoiceTruck}>Save Truck</button>
-          </div>
-          {answer ? <div className="aiAnswer"><div className="avatar"><Bot size={20}/></div><div><b>I found the best return load for you.</b><p>{answer}</p>{best && <MatchCard m={best} i={0} />}</div><button className="speak" onClick={()=>speak(answer)}><Volume2 size={18}/></button></div> : <div className="emptyState"><Mic size={34}/><b>Tap the microphone and speak naturally.</b><p>Example: “Truck 104 is empty in Houston at 9 AM tomorrow. Find the best Dallas return load.”</p></div>}
-        </div>
-
-        <div className="glassCard mapCard">
-          <div className="cardTitle"><h2>Live Fleet Map</h2><select><option>All Trucks</option></select></div>
-          <FleetMap truckForm={truckForm} best={best} />
-        </div>
-
-        <div className="glassCard activityCard">
-          <h2>Recent Activity</h2>
-          {['New load matched Houston → Dallas','Truck 107 updated location: Austin, TX','Load delivered San Antonio, TX','Rate confirmation uploaded'].map((x,i)=><div className="activity" key={x}><span>{i===0?<Package size={16}/>:i===1?<Truck size={16}/>:i===2?<ShieldCheck size={16}/>:<FileText size={16}/>}</span><p>{x}</p><small>{i===0?'2m ago':i===1?'15m ago':i===2?'1h ago':'2h ago'}</small></div>)}
-        </div>
-      </section>}
-
-      {(panel==='dashboard' || panel==='dispatcher' || panel==='loads' || panel==='messages') && <section className="bottomGrid">
-        <div className="glassCard"><div className="cardTitle"><h2>Top Load Recommendations</h2><button onClick={runMatches}><ChevronRight size={18}/></button></div><div className="recommendations">{matches.length ? matches.slice(0,6).map((m,i)=><MatchCard key={i} m={m} i={i} compact />) : loads.slice(0,8).map((l)=><LoadTile key={l.id} l={l}/>)}</div></div>
-        <div className="glassCard"><div className="cardTitle"><h2>Broker Email Draft</h2><button onClick={sendBrokerEmail} disabled={!brokerEmail || busy}><Mail size={17}/>Send</button></div><pre>{brokerEmail || 'Ask the dispatcher to rank a load. The broker email will generate here.'}</pre></div>
-        <div className="glassCard"><div className="cardTitle"><h2>Driver Message Draft</h2><button onClick={sendDriverSms} disabled={!driverMessage || busy}><MessageSquare size={17}/>SMS</button></div><pre>{driverMessage || 'Ask the dispatcher to rank a load. The driver message will generate here.'}</pre>{sendStatus && <p className="sendStatus">{sendStatus}</p>}</div>
-      </section>}
-
-      {panel==='documents' && <section className="pageGrid"><div className="glassCard wide"><div className="cardTitle"><h2><UploadCloud size={22}/> Carrier Document Vault</h2><button onClick={sendCarrierPacket} disabled={busy}><Mail size={17}/> Send Packet</button></div><p className="muted">Upload driver license, insurance, authority, registration, W-9, rate confirmation, POD, and broker setup documents once. The AI can reuse them when emailing companies.</p><form className="uploadForm" onSubmit={uploadDocument}><select name="doc_type"><option>Driver License</option><option>Insurance</option><option>Authority / MC Certificate</option><option>Registration</option><option>W-9</option><option>Rate Confirmation</option><option>Proof of Delivery</option><option>Broker Packet</option><option>Other</option></select><input name="file" type="file"/><button disabled={uploading}><UploadCloud size={17}/>{uploading?'Uploading...':'Upload'}</button></form><div className="docGrid">{documents.length ? documents.map(d=><div className="docCard" key={d.id}><FileText size={24}/><b>{d.doc_type}</b><p>{d.filename}</p><small>{d.parsed_summary}</small></div>) : <div className="emptyState"><FileText size={34}/><b>No documents uploaded yet.</b><p>Add your required carrier documents here.</p></div>}</div></div></section>}
-
-      {panel==='settings' && <section className="pageGrid"><div className="glassCard wide"><div className="cardTitle"><h2><UserCog size={22}/> User Dashboard Settings</h2><button onClick={()=>saveProfile(profile)}><CheckCircle2 size={17}/>Save</button></div><div className="profileForm"><label>Your Name<input value={profile.name||''} onChange={e=>setProfile({...profile,name:e.target.value})} placeholder="Eugene / Dispatcher name"/></label><label>Company<input value={profile.company||''} onChange={e=>setProfile({...profile,company:e.target.value})} placeholder="Your carrier company"/></label><label>Base / Terminal<input value={profile.base||''} onChange={e=>setProfile({...profile,base:e.target.value})} placeholder="Houston Ops"/></label><label>Broker Email<input value={profile.brokerEmail||''} onChange={e=>setProfile({...profile,brokerEmail:e.target.value})} placeholder="broker@example.com"/></label></div><p className="muted">This is saved in this browser for now. Next step is adding login so every carrier has a secure private dashboard.</p></div></section>}
-
-      {(panel==='fleet' || panel==='analytics') && <section className="pageGrid"><div className="glassCard wide"><h2>{panel==='fleet'?'Fleet':'Analytics'}</h2><div className="docGrid"><div className="docCard"><Truck size={24}/><b>{trucks.length} Trucks</b><p>Saved trucks and voice-captured units.</p></div><div className="docCard"><Package size={24}/><b>{loads.length} Loads</b><p>Generated and available load options.</p></div><div className="docCard"><TrendingUp size={24}/><b>{money(dashboard.estimated_revenue_recovered||0)}</b><p>Estimated recovered profit.</p></div></div></div></section>}
-
-      {sendStatus && <div className="toast">{sendStatus}</div>}
-    </section>
-  </div>
+function AIWrapper(props){
+  const [initial,setInitial]=useState(null);
+  useEffect(()=>{ const h=(e)=>setInitial(e.detail); window.addEventListener('emai-voice',h); return()=>window.removeEventListener('emai-voice',h)},[]);
+  return <DispatchAI {...props} initial={initial}/>;
 }
 
 createRoot(document.getElementById('root')).render(<App/>);
