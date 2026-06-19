@@ -237,24 +237,174 @@ const seedReviews = [
   {employer:'Verified Carrier Ops', driver:'Samuel Price', rating:4, points:65, note:'Good driver, needs faster status updates.'}
 ];
 
+
 function HireMarketplace(){
   const [mode,setMode]=useState('drivers');
   const [drivers,setDrivers]=useState(seedDrivers);
   const [trucks,setTrucks]=useState(seedTrucksForHire);
   const [reviews,setReviews]=useState(seedReviews);
-  const [form,setForm]=useState({need:'CDL-A Driver', city:'Houston, TX', equipment:'Dry Van', pay:'$300/day', owner:'', truckType:'26ft Box Truck'});
   const [toast,setToast]=useState('');
-  function postDriverNeed(kind){ const row={id:`REQ-${Date.now()}`, name:`${kind} request`, type:kind, city:form.city, score:0, points:0, reviews:0, experience:'Open request', equipment:form.equipment, status:'Hiring', rate:form.pay}; setDrivers([row,...drivers]); setToast(`${kind} hiring request posted for ${form.city}.`); }
-  function listTruck(){ const row={id:`TRK-${Date.now()}`, owner:form.owner || 'Independent Truck Owner', type:form.truckType, city:form.city, availability:'Available now', rate:form.pay, driverNeeded:'Optional', verified:false}; setTrucks([row,...trucks]); setToast(`${row.type} listed for hire in ${row.city}.`); }
-  function addReview(driver){ const row={employer:'Verified Employer', driver:driver.name, rating:5, points:75, note:'Reliable completed load. Points added after employer review.'}; setReviews([row,...reviews]); setDrivers(drivers.map(d=>d.id===driver.id?{...d,points:d.points+75,reviews:d.reviews+1,score:Math.min(100,d.score+1)}:d)); setToast(`Review added for ${driver.name}. Driver earned 75 points.`); }
+  const [marketSearch,setMarketSearch]=useState('');
+  const [driverFilter,setDriverFilter]=useState('All Drivers');
+  const [truckFilter,setTruckFilter]=useState('All Trucks');
+  const [cityFilter,setCityFilter]=useState('All Markets');
+  const [driverForm,setDriverForm]=useState({
+    postType:'Hire Driver', license:'CDL-A', city:'Houston, TX', experience:'2+ years', equipment:'Dry Van', pay:'$300/day', schedule:'OTR / Regional', employer:'Demo Logistics LLC', phone:'', notes:'Clean MVR, on-time communication, able to upload POD from mobile.'
+  });
+  const [truckForm,setTruckForm]=useState({
+    postType:'List Truck For Hire', owner:'Independent Truck Owner', truckType:'26ft Box Truck', city:'Houston, TX', availability:'Available now', rate:'$650/day', driverNeeded:'Optional', capacity:'10,000 lbs', notes:'Liftgate, pallet jack, local/regional work preferred.'
+  });
+  const [reviewForm,setReviewForm]=useState({
+    employer:'Verified Employer', driver:'Marcus Hill', rating:'5', points:'75', note:'Reliable completed load. On time pickup, clean POD, good communication.'
+  });
+  const [backgroundPackages,setBackgroundPackages]=useState([]);
+  const [backgroundChecks,setBackgroundChecks]=useState([]);
+  const [backgroundForm,setBackgroundForm]=useState({
+    subject:'Marcus Hill', subject_type:'Driver', package_code:'driver_cdl_annual', provider:'Auto-select best available partner'
+  });
+
+  useEffect(()=>{
+    api('/api/hiring/drivers').then(setDrivers).catch(()=>{});
+    api('/api/hiring/trucks').then(setTrucks).catch(()=>{});
+    api('/api/hiring/reviews').then(setReviews).catch(()=>{});
+    api('/api/background/packages').then(setBackgroundPackages).catch(()=>{});
+    api('/api/background/checks').then(setBackgroundChecks).catch(()=>{});
+  },[]);
+
+  const markets=['All Markets','Houston, TX','Dallas, TX','Atlanta, GA','Chicago, IL','Memphis, TN','Phoenix, AZ','Los Angeles, CA'];
+  const driverTypes=['All Drivers','CDL-A','CDL-B','Non-CDL','Box Truck Driver','Yard Driver','Team Driver','Local Driver','OTR Driver'];
+  const truckTypes=['All Trucks','26ft Box Truck','24ft Box Truck','16ft Box Truck','Cargo Van','53ft Dry Van + Tractor','Reefer','Flatbed','Power Only','Hotshot'];
+  const equipmentTypes=['Dry Van','Reefer','Flatbed','Box Truck','Power Only','Hotshot','Cargo Van','Step Deck'];
+  const tabs=[['drivers','Hire / Find Drivers'],['trucks','Hire / List Trucks'],['background','Paid Verification'],['reviews','Reviews + Points'],['leaderboard','Top Reputation']];
+
+  const normalized=(v)=>String(v||'').toLowerCase();
+  const searchPass=(row)=>!marketSearch || JSON.stringify(row).toLowerCase().includes(marketSearch.toLowerCase());
+  const cityPass=(city)=>cityFilter==='All Markets' || city===cityFilter;
+  const filteredDrivers=drivers.filter(d=>searchPass(d)&&cityPass(d.city)&&(driverFilter==='All Drivers'||normalized(d.type).includes(normalized(driverFilter))||normalized(d.equipment).includes(normalized(driverFilter))));
+  const filteredTrucks=trucks.filter(t=>searchPass(t)&&cityPass(t.city)&&(truckFilter==='All Trucks'||normalized(t.type).includes(normalized(truckFilter))));
+  const topDrivers=[...drivers].sort((a,b)=>(b.points||0)-(a.points||0)).slice(0,5);
+  const topCarriers=[
+    {name:'BlueLine Dispatch', score:98, reviews:42, specialty:'Texas lanes · verified employer'},
+    {name:'Metro Retail Supply', score:95, reviews:31, specialty:'Box truck routes · fast payments'},
+    {name:'DFW Independent Fleet', score:93, reviews:26, specialty:'Owner-operator friendly'},
+  ];
+  const topDispatchers=[
+    {name:'Eugene Dispatch Desk', score:97, reviews:38, specialty:'Empty-mile recovery'},
+    {name:'Houston Night Ops', score:94, reviews:29, specialty:'After-hours dispatch'},
+    {name:'Atlanta Freight Desk', score:91, reviews:20, specialty:'Regional dry van'},
+  ];
+
+  async function postDriverNeed(kind=driverForm.postType){
+    const type = driverForm.license==='Non-CDL' ? 'Non-CDL' : driverForm.license;
+    const payload={
+      name: kind==='Driver Available' ? `${driverForm.license} Driver Available` : `${driverForm.license} Driver Needed`,
+      type, city:driverForm.city, experience:driverForm.experience, equipment:driverForm.equipment,
+      rate:driverForm.pay, status:kind==='Driver Available'?'Available':'Hiring', notes:driverForm.notes
+    };
+    try{ const row=await api('/api/hiring/drivers',{method:'POST',body:JSON.stringify(payload)}); setDrivers([row,...drivers]); }
+    catch{ setDrivers([{id:`REQ-${Date.now()}`,score:0,points:0,reviews:0,...payload},...drivers]); }
+    setToast(`${payload.name} posted in ${payload.city}.`); setMode('drivers');
+  }
+  async function listTruck(){
+    const payload={owner:truckForm.owner,type:truckForm.truckType,city:truckForm.city,availability:truckForm.availability,rate:truckForm.rate,driverNeeded:truckForm.driverNeeded,capacity:truckForm.capacity,notes:truckForm.notes};
+    try{ const row=await api('/api/hiring/trucks',{method:'POST',body:JSON.stringify(payload)}); setTrucks([row,...trucks]); }
+    catch{ setTrucks([{id:`TRK-${Date.now()}`,verified:false,...payload},...trucks]); }
+    setToast(`${payload.type} listed for hire in ${payload.city}.`); setMode('trucks');
+  }
+  async function addReview(driver){
+    const payload={...reviewForm, driver:driver?.name || reviewForm.driver, rating:Number(reviewForm.rating), points:Number(reviewForm.points)};
+    try{ const row=await api('/api/hiring/reviews',{method:'POST',body:JSON.stringify(payload)}); setReviews([row,...reviews]); }
+    catch{ setReviews([payload,...reviews]); }
+    setDrivers(drivers.map(d=>d.name===payload.driver?{...d,points:Number(d.points||0)+Number(payload.points||0),reviews:Number(d.reviews||0)+1,score:Math.min(100,Number(d.score||80)+1)}:d));
+    setToast(`Verified review added for ${payload.driver}. +${payload.points} points.`); setMode('reviews');
+  }
+
+  async function requestBackgroundCheck(){
+    const payload={...backgroundForm};
+    try{ const row=await api('/api/background/checks',{method:'POST',body:JSON.stringify(payload)}); setBackgroundChecks([row,...backgroundChecks]); setToast(`Verification created for ${row.subject}. Payment required: $${row.price}/year.`); }
+    catch{ const row={id:`BG-${Date.now()}`, subject:payload.subject, subject_type:payload.subject_type, package:'Annual Verification', provider:payload.provider, price:59, status:'Payment Required', renewal:'Annual', paid:false, checks:['Identity','MVR','Criminal','Employment History']}; setBackgroundChecks([row,...backgroundChecks]); setToast(`Verification created for ${row.subject}. Payment required.`); }
+    setMode('background');
+  }
+  async function markPaid(check){
+    try{ const row=await api(`/api/background/checks/${check.id}/mark-paid`,{method:'POST'}); setBackgroundChecks(backgroundChecks.map(c=>c.id===check.id?row:c)); setToast(`${row.subject} payment captured. Third-party verification started.`); }
+    catch{ setBackgroundChecks(backgroundChecks.map(c=>c.id===check.id?{...c,paid:true,status:'Processing with Third Party',payment_note:'Payment captured. Verification started.'}:c)); }
+  }
+  async function renewCheck(check){
+    try{ const row=await api(`/api/background/checks/${check.id}/renew`,{method:'POST'}); setBackgroundChecks(backgroundChecks.map(c=>c.id===check.id?row:c)); setToast(`${row.subject} annual renewal requested.`); }
+    catch{ setBackgroundChecks(backgroundChecks.map(c=>c.id===check.id?{...c,paid:false,status:'Renewal Payment Required',expires_at:null}:c)); }
+  }
+
   return <div className="page hire-page">
-    <section className="panel big marketplace-hero"><div><p className="eyebrow">New marketplace layer</p><h2>Hire CDL / Non-CDL Drivers or List Trucks for Hire</h2><p>This is a major Empty Mile AI differentiator: verified employers review drivers, drivers earn points, and independent truck owners can list 26ft box trucks, tractors, reefers, and larger equipment.</p></div><div className="hero-actions"><button className="primary" onClick={()=>postDriverNeed('CDL Driver')}><Users/> Hire CDL Driver</button><button className="secondary" onClick={()=>postDriverNeed('Non-CDL Driver')}><UserRound/> Hire Non-CDL Driver</button><button onClick={listTruck}><Truck/> List Truck</button></div></section>
+    <section className="panel big marketplace-hero">
+      <div><p className="eyebrow">Marketplace</p><h2>Drivers, Trucks, Verification & Reputation</h2><p>Hire CDL/non-CDL drivers, list trucks, verify applicants through paid third-party background checks, renew verification yearly, and let verified employers review drivers so good drivers build points and credibility.</p></div>
+      <div className="hero-actions"><button className="primary" onClick={()=>{setMode('drivers');setDriverForm({...driverForm,postType:'Hire Driver',license:'CDL-A'})}}><Users/> Hire CDL Driver</button><button className="secondary" onClick={()=>{setMode('drivers');setDriverForm({...driverForm,postType:'Hire Driver',license:'Non-CDL'})}}><UserRound/> Hire Non-CDL Driver</button><button onClick={()=>setMode('trucks')}><Truck/> List Truck</button><button onClick={()=>setMode('background')}><ShieldCheck/> Get Verified</button></div>
+    </section>
     {toast&&<div className="toast">{toast}</div>}
-    <section className="panel marketplace-form"><div className="panel-head"><h3>Quick Post</h3><p>Post a need or list a truck in seconds.</p></div><div className="settings-grid"><label>Market / City<input value={form.city} onChange={e=>setForm({...form,city:e.target.value})}/></label><label>Equipment<input value={form.equipment} onChange={e=>setForm({...form,equipment:e.target.value})}/></label><label>Pay / Rate<input value={form.pay} onChange={e=>setForm({...form,pay:e.target.value})}/></label><label>Truck Type<input value={form.truckType} onChange={e=>setForm({...form,truckType:e.target.value})}/></label><label>Owner / Company<input value={form.owner} onChange={e=>setForm({...form,owner:e.target.value})} placeholder="Independent owner or carrier"/></label></div></section>
-    <div className="market-tabs"><button className={mode==='drivers'?'active':''} onClick={()=>setMode('drivers')}>Drivers</button><button className={mode==='trucks'?'active':''} onClick={()=>setMode('trucks')}>Trucks for Hire</button><button className={mode==='reviews'?'active':''} onClick={()=>setMode('reviews')}>Verified Reviews + Points</button></div>
-    {mode==='drivers'&&<div className="market-grid">{drivers.map(d=><article className="market-card" key={d.id}><div className="market-score">{d.score || 'NEW'}</div><h3>{d.name}</h3><p>{d.type} · {d.city}</p><div className="market-meta"><span>{d.experience}</span><span>{d.equipment}</span><span>{d.rate}</span></div><div className="points"><ShieldCheck/> {d.status} · {d.points} pts · {d.reviews} reviews</div><div className="btn-row"><button className="primary"><Phone/> Contact</button><button onClick={()=>addReview(d)}><CheckCircle2/> Add Review</button></div></article>)}</div>}
-    {mode==='trucks'&&<div className="market-grid">{trucks.map(t=><article className="market-card" key={t.id}><div className="truck-badge"><Truck/> {t.type}</div><h3>{t.owner}</h3><p>{t.city} · {t.availability}</p><div className="market-meta"><span>{t.rate}</span><span>Driver needed: {t.driverNeeded}</span><span>{t.verified?'Verified owner':'Needs verification'}</span></div><div className="btn-row"><button className="primary"><Mail/> Request Truck</button><button><MessageSquare/> Message</button></div></article>)}</div>}
-    {mode==='reviews'&&<section className="panel big"><div className="panel-head"><div><h3>Verified Employer Reviews</h3><p>Past verified employers can review drivers after completed work. Points build trust and ranking.</p></div><ShieldCheck/></div><div className="review-list">{reviews.map((r,i)=><div className="review-row" key={i}><div><b>{r.driver}</b><span>{r.employer}</span></div><div className="stars">{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</div><p>{r.note}</p><strong>+{r.points} pts</strong></div>)}</div></section>}
+
+    <section className="panel market-controls">
+      <div className="control-row">
+        <label><Search size={16}/> Search marketplace<input value={marketSearch} onChange={e=>setMarketSearch(e.target.value)} placeholder="driver, city, truck, employer..."/></label>
+        <label>Market<select value={cityFilter} onChange={e=>setCityFilter(e.target.value)}>{markets.map(m=><option key={m}>{m}</option>)}</select></label>
+        <label>Driver Type<select value={driverFilter} onChange={e=>setDriverFilter(e.target.value)}>{driverTypes.map(m=><option key={m}>{m}</option>)}</select></label>
+        <label>Truck Type<select value={truckFilter} onChange={e=>setTruckFilter(e.target.value)}>{truckTypes.map(m=><option key={m}>{m}</option>)}</select></label>
+      </div>
+      <div className="market-tabs">{tabs.map(([k,label])=><button key={k} className={mode===k?'active':''} onClick={()=>setMode(k)}>{label}</button>)}</div>
+    </section>
+
+    {mode==='drivers'&&<>
+      <section className="panel marketplace-form"><div className="panel-head"><div><h3>Post Driver Need / Driver Availability</h3><p>Use dropdowns so dispatchers and drivers can post quickly without confusion.</p></div><button className="primary" onClick={()=>postDriverNeed()}><Plus/> Post</button></div>
+        <div className="settings-grid market-form-grid">
+          <label>Post Type<select value={driverForm.postType} onChange={e=>setDriverForm({...driverForm,postType:e.target.value})}><option>Hire Driver</option><option>Driver Available</option><option>Find Team Driver</option><option>Temporary Driver Needed</option></select></label>
+          <label>License / Driver Type<select value={driverForm.license} onChange={e=>setDriverForm({...driverForm,license:e.target.value})}>{driverTypes.filter(x=>x!=='All Drivers').map(m=><option key={m}>{m}</option>)}</select></label>
+          <label>Market<select value={driverForm.city} onChange={e=>setDriverForm({...driverForm,city:e.target.value})}>{markets.filter(x=>x!=='All Markets').map(m=><option key={m}>{m}</option>)}</select></label>
+          <label>Equipment<select value={driverForm.equipment} onChange={e=>setDriverForm({...driverForm,equipment:e.target.value})}>{equipmentTypes.map(m=><option key={m}>{m}</option>)}</select></label>
+          <label>Experience<select value={driverForm.experience} onChange={e=>setDriverForm({...driverForm,experience:e.target.value})}><option>Entry Level</option><option>1+ year</option><option>2+ years</option><option>5+ years</option><option>10+ years</option></select></label>
+          <label>Pay / Rate<select value={driverForm.pay} onChange={e=>setDriverForm({...driverForm,pay:e.target.value})}><option>$180/day</option><option>$220/day</option><option>$300/day</option><option>$350/day</option><option>$0.60/mile</option><option>$0.75/mile</option><option>Negotiable</option></select></label>
+          <label>Schedule<select value={driverForm.schedule} onChange={e=>setDriverForm({...driverForm,schedule:e.target.value})}><option>Local</option><option>Regional</option><option>OTR / Regional</option><option>Night Shift</option><option>Weekend</option><option>Temporary</option></select></label>
+          <label>Verified Employer<input value={driverForm.employer} onChange={e=>setDriverForm({...driverForm,employer:e.target.value})}/></label>
+        </div>
+        <label className="wide-label">Notes<textarea value={driverForm.notes} onChange={e=>setDriverForm({...driverForm,notes:e.target.value})}/></label>
+      </section>
+      <div className="market-grid">{filteredDrivers.map(d=><article className="market-card" key={d.id}><div className="market-score">{d.score || 'NEW'}</div><h3>{d.name}</h3><p>{d.type} · {d.city}</p><div className="market-meta"><span>{d.experience}</span><span>{d.equipment}</span><span>{d.rate}</span></div><div className="points"><ShieldCheck/> {d.status} · {d.points} pts · {d.reviews} reviews</div><div className="btn-row"><button className="primary"><Phone/> Contact</button><button><MessageSquare/> Message</button><button onClick={()=>{setBackgroundForm({...backgroundForm,subject:d.name,subject_type:'Driver',package_code:d.type==='Non-CDL'?'driver_non_cdl_annual':'driver_cdl_annual'});setMode('background')}}><ShieldCheck/> Verify</button><button onClick={()=>addReview(d)}><CheckCircle2/> Review</button></div></article>)}</div>
+    </>}
+
+    {mode==='trucks'&&<>
+      <section className="panel marketplace-form"><div className="panel-head"><div><h3>List Truck / Find Truck Owner</h3><p>Independent truck owners can list 26ft trucks, cargo vans, tractors, reefers, and larger equipment.</p></div><button className="primary" onClick={listTruck}><Truck/> List Truck</button></div>
+        <div className="settings-grid market-form-grid">
+          <label>Post Type<select value={truckForm.postType} onChange={e=>setTruckForm({...truckForm,postType:e.target.value})}><option>List Truck For Hire</option><option>Hire Truck</option><option>Find Owner Operator</option><option>Need Driver For My Truck</option></select></label>
+          <label>Truck Type<select value={truckForm.truckType} onChange={e=>setTruckForm({...truckForm,truckType:e.target.value})}>{truckTypes.filter(x=>x!=='All Trucks').map(m=><option key={m}>{m}</option>)}</select></label>
+          <label>Market<select value={truckForm.city} onChange={e=>setTruckForm({...truckForm,city:e.target.value})}>{markets.filter(x=>x!=='All Markets').map(m=><option key={m}>{m}</option>)}</select></label>
+          <label>Availability<select value={truckForm.availability} onChange={e=>setTruckForm({...truckForm,availability:e.target.value})}><option>Available now</option><option>Available tomorrow</option><option>Weekdays</option><option>Weekends</option><option>Dedicated route only</option><option>On demand</option></select></label>
+          <label>Rate<select value={truckForm.rate} onChange={e=>setTruckForm({...truckForm,rate:e.target.value})}><option>$350/day</option><option>$500/day</option><option>$650/day</option><option>$775/day</option><option>$1,150/day</option><option>Negotiable</option></select></label>
+          <label>Driver Needed?<select value={truckForm.driverNeeded} onChange={e=>setTruckForm({...truckForm,driverNeeded:e.target.value})}><option>Yes</option><option>No</option><option>Optional</option><option>Owner drives</option></select></label>
+          <label>Capacity<select value={truckForm.capacity} onChange={e=>setTruckForm({...truckForm,capacity:e.target.value})}><option>3,500 lbs</option><option>6,000 lbs</option><option>10,000 lbs</option><option>26,000 lbs</option><option>Full truckload</option></select></label>
+          <label>Owner / Company<input value={truckForm.owner} onChange={e=>setTruckForm({...truckForm,owner:e.target.value})}/></label>
+        </div>
+        <label className="wide-label">Notes<textarea value={truckForm.notes} onChange={e=>setTruckForm({...truckForm,notes:e.target.value})}/></label>
+      </section>
+      <div className="market-grid">{filteredTrucks.map(t=><article className="market-card" key={t.id}><div className="truck-badge"><Truck/> {t.type}</div><h3>{t.owner}</h3><p>{t.city} · {t.availability}</p><div className="market-meta"><span>{t.rate}</span><span>Driver needed: {t.driverNeeded}</span><span>{t.verified?'Verified owner':'Needs verification'}</span><span>{t.capacity || 'Capacity TBD'}</span></div><div className="btn-row"><button className="primary"><Mail/> Request Truck</button><button><MessageSquare/> Message</button><button><Phone/> Call Owner</button></div></article>)}</div>
+    </>}
+
+    {mode==='background'&&<>
+      <section className="panel big marketplace-form"><div className="panel-head"><div><h3>Paid Background Check & Annual Verification</h3><p>Drivers, truck owners, and employers pay to become verified. Empty Mile AI connects them to third-party providers such as Checkr, Yardstik, HireRight, Certn, MVR services, FMCSA, CarrierOK, and insurance verification partners. Verification renews every year.</p></div><ShieldCheck/></div>
+        <div className="settings-grid market-form-grid">
+          <label>Who is being verified?<input value={backgroundForm.subject} onChange={e=>setBackgroundForm({...backgroundForm,subject:e.target.value})} placeholder="Driver, truck owner, or employer name"/></label>
+          <label>Subject Type<select value={backgroundForm.subject_type} onChange={e=>setBackgroundForm({...backgroundForm,subject_type:e.target.value})}><option>Driver</option><option>Truck Owner</option><option>Employer</option><option>Carrier</option></select></label>
+          <label>Verification Package<select value={backgroundForm.package_code} onChange={e=>setBackgroundForm({...backgroundForm,package_code:e.target.value})}>{(backgroundPackages.length?backgroundPackages:[{code:'driver_cdl_annual',name:'CDL Driver Annual Verification - $59/year'},{code:'driver_non_cdl_annual',name:'Non-CDL Driver Annual Verification - $39/year'},{code:'truck_owner_annual',name:'Truck Owner / Company Verification - $79/year'},{code:'verified_employer_annual',name:'Verified Employer Review Privilege - $99/year'}]).map(p=><option key={p.code} value={p.code}>{p.name}{p.price?` - $${p.price}/year`:''}</option>)}</select></label>
+          <label>Provider Strategy<select value={backgroundForm.provider} onChange={e=>setBackgroundForm({...backgroundForm,provider:e.target.value})}><option>Auto-select best available partner</option><option>Checkr</option><option>Yardstik</option><option>HireRight</option><option>Certn</option><option>FMCSA + MVR + Insurance Verification</option><option>CarrierOK / Carrier Compliance Partner</option></select></label>
+        </div>
+        <div className="verification-note"><ShieldCheck/> <div><b>Revenue model:</b> applicants pay before verification starts. Verified badge expires yearly unless renewed. Verified employers must also pay annually before leaving public driver reviews.</div></div>
+        <button className="primary" onClick={requestBackgroundCheck}><ShieldCheck/> Create Paid Verification Request</button>
+      </section>
+      <div className="market-grid">{backgroundChecks.map(c=><article className="market-card" key={c.id}><div className="market-score">{c.paid?'PAID':'$'}</div><h3>{c.subject}</h3><p>{c.subject_type} · {c.package}</p><div className="market-meta"><span>${c.price}/year</span><span>{c.status}</span><span>{c.expires_at?`Expires ${c.expires_at}`:'Annual renewal required'}</span></div><div className="points"><ShieldCheck/> Provider: {c.provider}</div><p className="small-muted">{(c.checks||[]).join(' · ')}</p><div className="btn-row"><button className="primary" onClick={()=>markPaid(c)}>{c.paid?'Open Provider':'Pay & Start'}</button><button onClick={()=>renewCheck(c)}><CalendarClock/> Renew Yearly</button><button><Mail/> Send Link</button></div></article>)}</div>
+    </>}
+
+    {mode==='reviews'&&<section className="panel big"><div className="panel-head"><div><h3>Verified Employer Reviews</h3><p>Employers review drivers after completed work. Reviews award points and create a trust score.</p></div><ShieldCheck/></div>
+      <div className="settings-grid market-form-grid review-form"><label>Employer<input value={reviewForm.employer} onChange={e=>setReviewForm({...reviewForm,employer:e.target.value})}/></label><label>Driver<select value={reviewForm.driver} onChange={e=>setReviewForm({...reviewForm,driver:e.target.value})}>{drivers.map(d=><option key={d.id}>{d.name}</option>)}</select></label><label>Rating<select value={reviewForm.rating} onChange={e=>setReviewForm({...reviewForm,rating:e.target.value})}><option>5</option><option>4</option><option>3</option><option>2</option><option>1</option></select></label><label>Points<select value={reviewForm.points} onChange={e=>setReviewForm({...reviewForm,points:e.target.value})}><option>25</option><option>50</option><option>75</option><option>100</option><option>150</option></select></label></div>
+      <label className="wide-label">Review Note<textarea value={reviewForm.note} onChange={e=>setReviewForm({...reviewForm,note:e.target.value})}/></label><button className="primary" onClick={()=>addReview({name:reviewForm.driver})}><CheckCircle2/> Submit Verified Review</button>
+      <div className="review-list">{reviews.map((r,i)=><div className="review-row" key={i}><div><b>{r.driver}</b><span>{r.employer}</span></div><div className="stars">{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</div><p>{r.note}</p><strong>+{r.points} pts</strong></div>)}</div></section>}
+
+    {mode==='leaderboard'&&<div className="leaderboard-grid"><section className="panel big"><h3>Top Drivers</h3>{topDrivers.map((d,i)=><div className="leader-row" key={d.id}><b>#{i+1} {d.name}</b><span>{d.type} · {d.points} pts · {d.reviews} reviews</span><strong>{d.score}</strong></div>)}</section><section className="panel big"><h3>Top Carriers</h3>{topCarriers.map((c,i)=><div className="leader-row" key={c.name}><b>#{i+1} {c.name}</b><span>{c.specialty} · {c.reviews} reviews</span><strong>{c.score}</strong></div>)}</section><section className="panel big"><h3>Top Dispatchers</h3>{topDispatchers.map((d,i)=><div className="leader-row" key={d.name}><b>#{i+1} {d.name}</b><span>{d.specialty} · {d.reviews} reviews</span><strong>{d.score}</strong></div>)}</section></div>}
   </div>
 }
 

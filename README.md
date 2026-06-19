@@ -49,3 +49,30 @@ VITE_TEST_PHONE=
 - Messaging center for driver/broker/shipper
 - Google Maps embed when key is configured
 - Render-safe dependency pins
+
+## Background Check / Paid Verification Marketplace
+
+This build adds a paid verification workflow for drivers, truck owners, carriers and verified employers.
+
+The MVP flow is intentionally safe/mocked:
+
+1. User selects a verification package.
+2. Platform creates a payment-required verification request.
+3. In production, connect Stripe checkout for payment.
+4. After payment, send the applicant to a third-party provider such as Checkr, Yardstik, HireRight, Certn, CarrierOK, FMCSA/MVR/insurance providers, or another approved verification partner.
+5. Verified badges renew annually.
+
+Suggested paid packages:
+
+- CDL Driver Annual Verification: $59/year
+- Non-CDL Driver Annual Verification: $39/year
+- Truck Owner / Company Verification: $79/year
+- Verified Employer Review Privilege: $99/year
+
+Backend endpoints:
+
+- GET /api/background/packages
+- GET /api/background/checks
+- POST /api/background/checks
+- POST /api/background/checks/{check_id}/mark-paid
+- POST /api/background/checks/{check_id}/renew

@@ -30,6 +30,19 @@ DRIVER_REVIEWS = [
     {"employer":"Metro Retail Supply","driver":"Angela Reed","rating":5,"points":90,"note":"Handled 26ft box truck local route professionally."},
 ]
 
+BACKGROUND_CHECKS = [
+    {"id":"BG-1001","subject":"Marcus Hill","subject_type":"Driver","package":"CDL Driver Annual Verification","provider":"Checkr / Yardstik / HireRight placeholder","price":59,"status":"Verified","expires_at":"2027-06-19","renewal":"Annual","checks":["Identity","MVR","Criminal","Employment History","CDL Verification"],"paid":True},
+    {"id":"BG-1002","subject":"Angela Reed","subject_type":"Driver","package":"Non-CDL Driver Annual Verification","provider":"Checkr / Certn placeholder","price":39,"status":"Verified","expires_at":"2027-06-19","renewal":"Annual","checks":["Identity","MVR","Criminal","Employment History"],"paid":True},
+    {"id":"BG-1003","subject":"Lone Star Box Trucks","subject_type":"Truck Owner","package":"Truck Owner / Company Verification","provider":"CarrierOK / FMCSA / Insurance API placeholder","price":79,"status":"Renewal Due Soon","expires_at":"2026-07-19","renewal":"Annual","checks":["Business Identity","DOT/MC Lookup","Insurance","Ownership Review"],"paid":True},
+]
+
+BACKGROUND_PACKAGES = [
+    {"code":"driver_cdl_annual","name":"CDL Driver Annual Verification","subject_type":"Driver","price":59,"renewal":"Annual","checks":["Identity","MVR","Criminal","Employment History","CDL Verification","Drug/Safety Records when available"]},
+    {"code":"driver_non_cdl_annual","name":"Non-CDL Driver Annual Verification","subject_type":"Driver","price":39,"renewal":"Annual","checks":["Identity","MVR","Criminal","Employment History"]},
+    {"code":"truck_owner_annual","name":"Truck Owner / Company Verification","subject_type":"Truck Owner","price":79,"renewal":"Annual","checks":["Business Identity","DOT/MC Lookup","Insurance","Vehicle Ownership Review"]},
+    {"code":"verified_employer_annual","name":"Verified Employer Review Privilege","subject_type":"Employer","price":99,"renewal":"Annual","checks":["Business Identity","Company Domain","Payment Profile","Review Abuse Monitoring"]},
+]
+
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
 app = FastAPI(title=settings.app_name, version="1.0.0")
@@ -320,6 +333,58 @@ def post_driver_review(payload: dict):
             driver["reviews"] = int(driver.get("reviews") or 0) + 1
             driver["score"] = min(100, int(driver.get("score") or 80) + 1)
     return row
+
+
+@app.get("/api/background/packages")
+def list_background_packages():
+    return BACKGROUND_PACKAGES
+
+@app.get("/api/background/checks")
+def list_background_checks():
+    return BACKGROUND_CHECKS
+
+@app.post("/api/background/checks")
+def request_background_check(payload: dict):
+    package_code = payload.get("package_code") or "driver_cdl_annual"
+    package = next((p for p in BACKGROUND_PACKAGES if p["code"] == package_code), BACKGROUND_PACKAGES[0])
+    subject = payload.get("subject") or payload.get("driver") or payload.get("company") or "Marketplace Applicant"
+    row = {
+        "id": f"BG-{int(datetime.utcnow().timestamp())}",
+        "subject": subject,
+        "subject_type": payload.get("subject_type") or package["subject_type"],
+        "package": package["name"],
+        "provider": payload.get("provider") or "Third-party verification partner placeholder",
+        "price": package["price"],
+        "status": "Payment Required",
+        "expires_at": None,
+        "renewal": package["renewal"],
+        "checks": package["checks"],
+        "paid": False,
+        "payment_note": "In production this starts Stripe checkout, then sends the applicant to Checkr/Yardstik/HireRight/Certn or another approved provider.",
+    }
+    BACKGROUND_CHECKS.insert(0, row)
+    return row
+
+@app.post("/api/background/checks/{check_id}/mark-paid")
+def mark_background_check_paid(check_id: str):
+    for row in BACKGROUND_CHECKS:
+        if row["id"] == check_id:
+            row["paid"] = True
+            row["status"] = "Processing with Third Party"
+            row["payment_note"] = "Payment captured. Verification request sent to selected provider."
+            return row
+    return {"error":"not_found", "id": check_id}
+
+@app.post("/api/background/checks/{check_id}/renew")
+def renew_background_check(check_id: str):
+    for row in BACKGROUND_CHECKS:
+        if row["id"] == check_id:
+            row["status"] = "Renewal Payment Required"
+            row["paid"] = False
+            row["expires_at"] = None
+            row["payment_note"] = "Annual renewal required before verified badge stays active."
+            return row
+    return {"error":"not_found", "id": check_id}
 
 @app.post("/documents", response_model=schemas.DocumentOut)
 async def upload_document(doc_type: str = Form(...), load_id: int | None = Form(None), file: UploadFile = File(...), db: Session = Depends(get_db)):
