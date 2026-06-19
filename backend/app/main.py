@@ -11,6 +11,24 @@ from .maps import compute_route
 from .heuristics import generate_demo_loads, STATE_BY_CITY
 from .messaging import send_email, send_sms
 import re
+from datetime import datetime
+
+
+
+# Lightweight hiring marketplace MVP. This gives Empty Mile AI a unique driver/truck marketplace
+# while the full Postgres models are added later.
+HIRE_DRIVER_POSTS = [
+    {"id":"DRV-201","name":"Marcus Hill","type":"CDL-A","city":"Dallas, TX","score":96,"points":1240,"reviews":18,"experience":"8 yrs","equipment":"Dry Van, Reefer","status":"Verified","rate":"$350/day"},
+    {"id":"DRV-202","name":"Angela Reed","type":"Non-CDL","city":"Houston, TX","score":91,"points":880,"reviews":11,"experience":"4 yrs","equipment":"26ft Box Truck","status":"Verified","rate":"$220/day"},
+]
+HIRE_TRUCK_POSTS = [
+    {"id":"TRK-H101","owner":"Lone Star Box Trucks","type":"26ft Box Truck","city":"Houston, TX","availability":"Available tomorrow","rate":"$650/day","driverNeeded":"Yes","verified":True},
+    {"id":"TRK-H102","owner":"DFW Independent Fleet","type":"53ft Dry Van + Tractor","city":"Dallas, TX","availability":"Available now","rate":"$1,150/day","driverNeeded":"Optional","verified":True},
+]
+DRIVER_REVIEWS = [
+    {"employer":"BlueLine Dispatch","driver":"Marcus Hill","rating":5,"points":120,"note":"On time, clean POD, excellent communication."},
+    {"employer":"Metro Retail Supply","driver":"Angela Reed","rating":5,"points":90,"note":"Handled 26ft box truck local route professionally."},
+]
 
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
@@ -237,6 +255,71 @@ async def api_send_email(payload: schemas.MessageSendRequest):
 @app.post("/api/messages/sms", response_model=schemas.MessageSendResponse)
 async def api_send_sms(payload: schemas.MessageSendRequest):
     return await send_sms(payload.to, payload.body)
+
+
+
+@app.get("/api/hiring/drivers")
+def list_hire_drivers():
+    return HIRE_DRIVER_POSTS
+
+@app.post("/api/hiring/drivers")
+def post_hire_driver(payload: dict):
+    kind = payload.get("type") or payload.get("need") or "CDL Driver"
+    row = {
+        "id": f"REQ-{int(datetime.utcnow().timestamp())}",
+        "name": payload.get("name") or f"{kind} request",
+        "type": kind,
+        "city": payload.get("city") or "Houston, TX",
+        "score": 0,
+        "points": 0,
+        "reviews": 0,
+        "experience": payload.get("experience") or "Open request",
+        "equipment": payload.get("equipment") or "Dry Van",
+        "status": "Hiring",
+        "rate": payload.get("rate") or payload.get("pay") or "$300/day",
+    }
+    HIRE_DRIVER_POSTS.insert(0, row)
+    return row
+
+@app.get("/api/hiring/trucks")
+def list_hire_trucks():
+    return HIRE_TRUCK_POSTS
+
+@app.post("/api/hiring/trucks")
+def post_hire_truck(payload: dict):
+    row = {
+        "id": f"TRK-{int(datetime.utcnow().timestamp())}",
+        "owner": payload.get("owner") or "Independent Truck Owner",
+        "type": payload.get("type") or payload.get("truckType") or "26ft Box Truck",
+        "city": payload.get("city") or "Houston, TX",
+        "availability": payload.get("availability") or "Available now",
+        "rate": payload.get("rate") or payload.get("pay") or "$650/day",
+        "driverNeeded": payload.get("driverNeeded") or "Optional",
+        "verified": bool(payload.get("verified", False)),
+    }
+    HIRE_TRUCK_POSTS.insert(0, row)
+    return row
+
+@app.get("/api/hiring/reviews")
+def list_driver_reviews():
+    return DRIVER_REVIEWS
+
+@app.post("/api/hiring/reviews")
+def post_driver_review(payload: dict):
+    row = {
+        "employer": payload.get("employer") or "Verified Employer",
+        "driver": payload.get("driver") or "Driver",
+        "rating": int(payload.get("rating") or 5),
+        "points": int(payload.get("points") or 75),
+        "note": payload.get("note") or "Reliable completed load. Points added after employer review.",
+    }
+    DRIVER_REVIEWS.insert(0, row)
+    for driver in HIRE_DRIVER_POSTS:
+        if driver.get("name") == row["driver"]:
+            driver["points"] = int(driver.get("points") or 0) + row["points"]
+            driver["reviews"] = int(driver.get("reviews") or 0) + 1
+            driver["score"] = min(100, int(driver.get("score") or 80) + 1)
+    return row
 
 @app.post("/documents", response_model=schemas.DocumentOut)
 async def upload_document(doc_type: str = Form(...), load_id: int | None = Form(None), file: UploadFile = File(...), db: Session = Depends(get_db)):

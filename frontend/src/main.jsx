@@ -23,10 +23,10 @@ const demoUser = {
 };
 
 const rolePermissions = {
-  Admin: ['home','ai','loads','drivers','documents','messages','map','settings'],
-  Dispatcher: ['home','ai','loads','drivers','documents','messages','map','settings'],
-  Driver: ['home','ai','documents','messages','map','settings'],
-  Broker: ['home','loads','documents','messages','settings']
+  Admin: ['home','ai','loads','drivers','hire','documents','messages','map','settings'],
+  Dispatcher: ['home','ai','loads','drivers','hire','documents','messages','map','settings'],
+  Driver: ['home','hire','ai','documents','messages','map','settings'],
+  Broker: ['home','loads','hire','documents','messages','settings']
 };
 
 const quickPrompts = [
@@ -74,7 +74,7 @@ function LoginScreen({onLogin}){
 function Sidebar({user, view, setView, onLogout}){
   const items = [
     ['home',Home,'Home'], ['ai',Sparkles,'Dispatch AI'], ['loads',Package,'Loads'], ['drivers',Users,'Drivers'],
-    ['documents',FolderOpen,'Documents'], ['messages',MessageSquare,'Messages'], ['map',MapPin,'Live Map'], ['settings',Settings,'Settings']
+    ['hire',Users,'Hire Board'], ['documents',FolderOpen,'Documents'], ['messages',MessageSquare,'Messages'], ['map',MapPin,'Live Map'], ['settings',Settings,'Settings']
   ].filter(([key])=>rolePermissions[user.role]?.includes(key));
   return <aside className="sidebar">
     <div className="logo"><div className="icon"><Bot/></div><div><h3>EMPTY MILE AI</h3><p>AI-native TMS</p></div></div>
@@ -85,7 +85,7 @@ function Sidebar({user, view, setView, onLogout}){
   </aside>
 }
 
-function Header({user, onVoice, listening}){
+function Header({user, onVoice, listening, onLogout}){
   return <header className="topbar">
     <button className="menu"><Home size={18}/></button>
     <button className={classNames('voice-command',listening && 'listening')} onClick={onVoice}>
@@ -95,6 +95,7 @@ function Header({user, onVoice, listening}){
     </button>
     <button className="round"><Bell size={18}/><em>3</em></button>
     <div className="profile"><UserRound size={19}/><div><b>{user.name}</b><span>{user.role}</span></div></div>
+    <button className="top-logout" onClick={onLogout} title="Logout"><LogOut size={18}/> Logout</button>
   </header>
 }
 
@@ -110,6 +111,7 @@ function HomePage({user,setView,stats,loads,documents}){
       <button onClick={()=>setView('ai')}><Sparkles/><b>Find Best Load</b><span>Voice or type a dispatch request</span></button>
       <button onClick={()=>setView('messages')}><MessageSquare/><b>Message Driver/Broker</b><span>SMS, email, call workflows</span></button>
       <button onClick={()=>setView('documents')}><FileText/><b>Manage Documents</b><span>Carrier packets, CDL, insurance</span></button>
+      <button onClick={()=>setView('hire')}><Users/><b>Hire Driver / List Truck</b><span>CDL, non-CDL and truck-owner marketplace</span></button>
       <button onClick={()=>setView('map')}><Navigation/><b>View Fleet Map</b><span>Routes, pickups, destinations</span></button>
     </div>
     <div className="stats-grid">
@@ -216,7 +218,46 @@ function MapPage({loads}){
   return <div className="page map-page"><section className="panel big"><div className="panel-head"><div><h2>Live Fleet Map</h2><p>Google Maps route layer for trucks, pickup, delivery, and deadhead mileage.</p></div><MapPin/></div>{src?<iframe title="fleet-map" className="google-map" src={src}/>:<div className="mock-map"><div className="route-line"/><span className="pin houston">Houston</span><span className="pin waco">Waco</span><span className="pin dallas">Dallas</span><p>Add VITE_GOOGLE_MAPS_API_KEY to show live Google Maps.</p></div>}</section></div>
 }
 
-function DriversPage(){ const drivers=[['James Carter','TX-104','Available','CDL valid'],['Maria Lopez','TX-107','In Transit','POD due'],['Chris Brown','TX-112','Off Duty','Medical expires soon']]; return <div className="page"><section className="panel big"><div className="panel-head"><h2>Drivers & Fleet</h2><button><Plus/> Add Driver</button></div><div className="table">{drivers.map(d=><div className="table-row" key={d[0]}><div><b>{d[0]}</b><span>{d[1]}</span></div><span className="badge">{d[2]}</span><span>{d[3]}</span><button>Open</button></div>)}</div></section></div> }
+
+function DriversPage(){ const drivers=[['James Carter','TX-104','Available','CDL valid'],['Maria Lopez','TX-107','In Transit','POD due'],['Chris Brown','TX-112','Off Duty','Medical expires soon']]; return <div className="page"><section className="panel big"><div className="panel-head"><div><h2>Drivers & Fleet</h2><p>Operational driver roster. Use Hire Board to source CDL/non-CDL drivers and trucks.</p></div><button><Plus/> Add Driver</button></div><div className="table">{drivers.map(d=><div className="table-row" key={d[0]}><div><b>{d[0]}</b><span>{d[1]}</span></div><span className="badge">{d[2]}</span><span>{d[3]}</span><button>Open</button></div>)}</div></section></div> }
+
+const seedDrivers = [
+  {id:'DRV-201', name:'Marcus Hill', type:'CDL-A', city:'Dallas, TX', score:96, points:1240, reviews:18, experience:'8 yrs', equipment:'Dry Van, Reefer', status:'Verified', rate:'$350/day'},
+  {id:'DRV-202', name:'Angela Reed', type:'Non-CDL', city:'Houston, TX', score:91, points:880, reviews:11, experience:'4 yrs', equipment:'26ft Box Truck', status:'Verified', rate:'$220/day'},
+  {id:'DRV-203', name:'Samuel Price', type:'CDL-B', city:'Atlanta, GA', score:88, points:740, reviews:9, experience:'5 yrs', equipment:'Straight Truck, Box Truck', status:'Background Pending', rate:'$260/day'}
+];
+const seedTrucksForHire = [
+  {id:'TRK-H101', owner:'Lone Star Box Trucks', type:'26ft Box Truck', city:'Houston, TX', availability:'Available tomorrow', rate:'$650/day', driverNeeded:'Yes', verified:true},
+  {id:'TRK-H102', owner:'DFW Independent Fleet', type:'53ft Dry Van + Tractor', city:'Dallas, TX', availability:'Available now', rate:'$1,150/day', driverNeeded:'Optional', verified:true},
+  {id:'TRK-H103', owner:'Peach State Logistics', type:'26ft Reefer Box Truck', city:'Atlanta, GA', availability:'Weekdays', rate:'$775/day', driverNeeded:'Yes', verified:false}
+];
+const seedReviews = [
+  {employer:'BlueLine Dispatch', driver:'Marcus Hill', rating:5, points:120, note:'On time, clean POD, excellent communication.'},
+  {employer:'Metro Retail Supply', driver:'Angela Reed', rating:5, points:90, note:'Handled 26ft box truck local route professionally.'},
+  {employer:'Verified Carrier Ops', driver:'Samuel Price', rating:4, points:65, note:'Good driver, needs faster status updates.'}
+];
+
+function HireMarketplace(){
+  const [mode,setMode]=useState('drivers');
+  const [drivers,setDrivers]=useState(seedDrivers);
+  const [trucks,setTrucks]=useState(seedTrucksForHire);
+  const [reviews,setReviews]=useState(seedReviews);
+  const [form,setForm]=useState({need:'CDL-A Driver', city:'Houston, TX', equipment:'Dry Van', pay:'$300/day', owner:'', truckType:'26ft Box Truck'});
+  const [toast,setToast]=useState('');
+  function postDriverNeed(kind){ const row={id:`REQ-${Date.now()}`, name:`${kind} request`, type:kind, city:form.city, score:0, points:0, reviews:0, experience:'Open request', equipment:form.equipment, status:'Hiring', rate:form.pay}; setDrivers([row,...drivers]); setToast(`${kind} hiring request posted for ${form.city}.`); }
+  function listTruck(){ const row={id:`TRK-${Date.now()}`, owner:form.owner || 'Independent Truck Owner', type:form.truckType, city:form.city, availability:'Available now', rate:form.pay, driverNeeded:'Optional', verified:false}; setTrucks([row,...trucks]); setToast(`${row.type} listed for hire in ${row.city}.`); }
+  function addReview(driver){ const row={employer:'Verified Employer', driver:driver.name, rating:5, points:75, note:'Reliable completed load. Points added after employer review.'}; setReviews([row,...reviews]); setDrivers(drivers.map(d=>d.id===driver.id?{...d,points:d.points+75,reviews:d.reviews+1,score:Math.min(100,d.score+1)}:d)); setToast(`Review added for ${driver.name}. Driver earned 75 points.`); }
+  return <div className="page hire-page">
+    <section className="panel big marketplace-hero"><div><p className="eyebrow">New marketplace layer</p><h2>Hire CDL / Non-CDL Drivers or List Trucks for Hire</h2><p>This is a major Empty Mile AI differentiator: verified employers review drivers, drivers earn points, and independent truck owners can list 26ft box trucks, tractors, reefers, and larger equipment.</p></div><div className="hero-actions"><button className="primary" onClick={()=>postDriverNeed('CDL Driver')}><Users/> Hire CDL Driver</button><button className="secondary" onClick={()=>postDriverNeed('Non-CDL Driver')}><UserRound/> Hire Non-CDL Driver</button><button onClick={listTruck}><Truck/> List Truck</button></div></section>
+    {toast&&<div className="toast">{toast}</div>}
+    <section className="panel marketplace-form"><div className="panel-head"><h3>Quick Post</h3><p>Post a need or list a truck in seconds.</p></div><div className="settings-grid"><label>Market / City<input value={form.city} onChange={e=>setForm({...form,city:e.target.value})}/></label><label>Equipment<input value={form.equipment} onChange={e=>setForm({...form,equipment:e.target.value})}/></label><label>Pay / Rate<input value={form.pay} onChange={e=>setForm({...form,pay:e.target.value})}/></label><label>Truck Type<input value={form.truckType} onChange={e=>setForm({...form,truckType:e.target.value})}/></label><label>Owner / Company<input value={form.owner} onChange={e=>setForm({...form,owner:e.target.value})} placeholder="Independent owner or carrier"/></label></div></section>
+    <div className="market-tabs"><button className={mode==='drivers'?'active':''} onClick={()=>setMode('drivers')}>Drivers</button><button className={mode==='trucks'?'active':''} onClick={()=>setMode('trucks')}>Trucks for Hire</button><button className={mode==='reviews'?'active':''} onClick={()=>setMode('reviews')}>Verified Reviews + Points</button></div>
+    {mode==='drivers'&&<div className="market-grid">{drivers.map(d=><article className="market-card" key={d.id}><div className="market-score">{d.score || 'NEW'}</div><h3>{d.name}</h3><p>{d.type} · {d.city}</p><div className="market-meta"><span>{d.experience}</span><span>{d.equipment}</span><span>{d.rate}</span></div><div className="points"><ShieldCheck/> {d.status} · {d.points} pts · {d.reviews} reviews</div><div className="btn-row"><button className="primary"><Phone/> Contact</button><button onClick={()=>addReview(d)}><CheckCircle2/> Add Review</button></div></article>)}</div>}
+    {mode==='trucks'&&<div className="market-grid">{trucks.map(t=><article className="market-card" key={t.id}><div className="truck-badge"><Truck/> {t.type}</div><h3>{t.owner}</h3><p>{t.city} · {t.availability}</p><div className="market-meta"><span>{t.rate}</span><span>Driver needed: {t.driverNeeded}</span><span>{t.verified?'Verified owner':'Needs verification'}</span></div><div className="btn-row"><button className="primary"><Mail/> Request Truck</button><button><MessageSquare/> Message</button></div></article>)}</div>}
+    {mode==='reviews'&&<section className="panel big"><div className="panel-head"><div><h3>Verified Employer Reviews</h3><p>Past verified employers can review drivers after completed work. Points build trust and ranking.</p></div><ShieldCheck/></div><div className="review-list">{reviews.map((r,i)=><div className="review-row" key={i}><div><b>{r.driver}</b><span>{r.employer}</span></div><div className="stars">{'★'.repeat(r.rating)}{'☆'.repeat(5-r.rating)}</div><p>{r.note}</p><strong>+{r.points} pts</strong></div>)}</div></section>}
+  </div>
+}
+
 function LoadsPage({loads}){ return <div className="page"><section className="panel big"><div className="panel-head"><h2>Loads Marketplace</h2><p>Heuristic/test loads now; DAT/Truckstop later.</p></div><LoadCards loads={loads}/></section></div> }
 function SettingsPage({user,setUser}){ return <div className="page"><section className="panel big"><h2>Workspace Settings</h2><div className="settings-grid"><label>Name<input value={user.name} onChange={e=>setUser({...user,name:e.target.value})}/></label><label>Company<input value={user.company} onChange={e=>setUser({...user,company:e.target.value})}/></label><label>Role<select value={user.role} onChange={e=>setUser({...user,role:e.target.value})}><option>Admin</option><option>Dispatcher</option><option>Driver</option><option>Broker</option></select></label><label>API Base<input value={API} readOnly/></label></div></section></div> }
 
@@ -246,9 +287,10 @@ function App(){
     view==='messages'?<MessagesPage/>:
     view==='map'?<MapPage loads={loads}/>:
     view==='drivers'?<DriversPage/>:
+    view==='hire'?<HireMarketplace/>:
     view==='loads'?<LoadsPage loads={loads}/>:
     <SettingsPage user={user} setUser={setUser}/>;
-  return <div className="app-shell"><Sidebar user={user} view={view} setView={setView} onLogout={logout}/><main><Header user={user} onVoice={voiceStart} listening={listening}/>{content}</main></div>
+  return <div className="app-shell"><Sidebar user={user} view={view} setView={setView} onLogout={logout}/><main><Header user={user} onVoice={voiceStart} listening={listening} onLogout={logout}/>{content}</main></div>
 }
 
 function AIWrapper(props){
