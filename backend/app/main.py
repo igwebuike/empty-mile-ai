@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, UploadFile, File, Form, Response
+from fastapi import FastAPI, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -11,59 +11,22 @@ from .maps import compute_route
 from .heuristics import generate_demo_loads, STATE_BY_CITY
 from .messaging import send_email, send_sms
 import re
-from datetime import datetime
-
-
-
-# Lightweight hiring marketplace MVP. This gives Empty Mile AI a unique driver/truck marketplace
-# while the full Postgres models are added later.
-HIRE_DRIVER_POSTS = [
-    {"id":"DRV-201","name":"Marcus Hill","type":"CDL-A","city":"Dallas, TX","score":96,"points":1240,"reviews":18,"experience":"8 yrs","equipment":"Dry Van, Reefer","status":"Verified","rate":"$350/day"},
-    {"id":"DRV-202","name":"Angela Reed","type":"Non-CDL","city":"Houston, TX","score":91,"points":880,"reviews":11,"experience":"4 yrs","equipment":"26ft Box Truck","status":"Verified","rate":"$220/day"},
-]
-HIRE_TRUCK_POSTS = [
-    {"id":"TRK-H101","owner":"Lone Star Box Trucks","type":"26ft Box Truck","city":"Houston, TX","availability":"Available tomorrow","rate":"$650/day","driverNeeded":"Yes","verified":True},
-    {"id":"TRK-H102","owner":"DFW Independent Fleet","type":"53ft Dry Van + Tractor","city":"Dallas, TX","availability":"Available now","rate":"$1,150/day","driverNeeded":"Optional","verified":True},
-]
-DRIVER_REVIEWS = [
-    {"employer":"BlueLine Dispatch","driver":"Marcus Hill","rating":5,"points":120,"note":"On time, clean POD, excellent communication."},
-    {"employer":"Metro Retail Supply","driver":"Angela Reed","rating":5,"points":90,"note":"Handled 26ft box truck local route professionally."},
-]
-
-BACKGROUND_CHECKS = [
-    {"id":"BG-1001","subject":"Marcus Hill","subject_type":"Driver","package":"CDL Driver Annual Verification","provider":"Checkr / Yardstik / HireRight placeholder","price":59,"status":"Verified","expires_at":"2027-06-19","renewal":"Annual","checks":["Identity","MVR","Criminal","Employment History","CDL Verification"],"paid":True},
-    {"id":"BG-1002","subject":"Angela Reed","subject_type":"Driver","package":"Non-CDL Driver Annual Verification","provider":"Checkr / Certn placeholder","price":39,"status":"Verified","expires_at":"2027-06-19","renewal":"Annual","checks":["Identity","MVR","Criminal","Employment History"],"paid":True},
-    {"id":"BG-1003","subject":"Lone Star Box Trucks","subject_type":"Truck Owner","package":"Truck Owner / Company Verification","provider":"CarrierOK / FMCSA / Insurance API placeholder","price":79,"status":"Renewal Due Soon","expires_at":"2026-07-19","renewal":"Annual","checks":["Business Identity","DOT/MC Lookup","Insurance","Ownership Review"],"paid":True},
-]
-
-BACKGROUND_PACKAGES = [
-    {"code":"driver_cdl_annual","name":"CDL Driver Annual Verification","subject_type":"Driver","price":59,"renewal":"Annual","checks":["Identity","MVR","Criminal","Employment History","CDL Verification","Drug/Safety Records when available"]},
-    {"code":"driver_non_cdl_annual","name":"Non-CDL Driver Annual Verification","subject_type":"Driver","price":39,"renewal":"Annual","checks":["Identity","MVR","Criminal","Employment History"]},
-    {"code":"truck_owner_annual","name":"Truck Owner / Company Verification","subject_type":"Truck Owner","price":79,"renewal":"Annual","checks":["Business Identity","DOT/MC Lookup","Insurance","Vehicle Ownership Review"]},
-    {"code":"verified_employer_annual","name":"Verified Employer Review Privilege","subject_type":"Employer","price":99,"renewal":"Annual","checks":["Business Identity","Company Domain","Payment Profile","Review Abuse Monitoring"]},
-]
 
 settings = get_settings()
 Base.metadata.create_all(bind=engine)
 app = FastAPI(title=settings.app_name, version="1.0.0")
-
-# CORS FIX FOR RENDER + BROWSER PREFLIGHTS
-# Render/Vite frontends send OPTIONS preflight requests before POST/GET calls.
-# Use CORS_ORIGINS="*" for MVP testing, or set it to a comma-separated list of frontend URLs.
-# Example production value:
-# CORS_ORIGINS=https://empty-mile-ai.onrender.com,https://yourdomain.com,http://localhost:5173
-cors_origin_list = [o.strip() for o in (settings.cors_origins or "*").split(",") if o.strip()]
-allow_all_origins = "*" in cors_origin_list
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if allow_all_origins else cors_origin_list,
-    allow_credentials=False if allow_all_origins else True,
+    allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=86400,
 )
 
+
+@app.get("/")
+def root():
+    return {"status":"ok","service":settings.app_name,"docs":"/docs","health":"/health"}
 
 
 def extract_voice_details(transcript: str):
@@ -117,23 +80,11 @@ def on_startup():
     finally:
         db.close()
 
-
-@app.options("/{rest_of_path:path}")
-def preflight_handler(rest_of_path: str):
-    # Extra safety for Render/browser preflight requests. CORSMiddleware handles this,
-    # but this keeps OPTIONS from ever returning 400 during MVP testing.
-    return Response(status_code=204)
-
-@app.get("/")
-def root():
-    return {"status": "ok", "app": settings.app_name, "docs": "/docs", "health": "/health"}
-
 @app.get("/health")
 def health():
     return {"status": "ok", "app": settings.app_name}
 
 @app.get("/dashboard")
-@app.get("/api/dashboard")
 def dashboard(db: Session = Depends(get_db)):
     trucks = db.query(models.Truck).count()
     loads = db.query(models.Load).filter(models.Load.status == "available").count()
@@ -241,19 +192,12 @@ async def api_dispatcher(payload: schemas.ChatRequest, db: Session = Depends(get
 
 @app.post("/api/voice/extract", response_model=schemas.VoiceExtractResponse)
 def api_voice_extract(payload: schemas.VoiceExtractRequest):
-    return extract_voice_details(payload.transcript)
+    return extract_voice_details(getattr(payload, 'transcript', '') or getattr(payload, 'text', '') or getattr(payload, 'message', ''))
 
 @app.post("/api/loads/generate", response_model=list[schemas.LoadOut])
 def api_generate_loads(payload: schemas.GenerateLoadsRequest, db: Session = Depends(get_db)):
-    # Keep the demo clean: remove old AI-generated test loads for this lane before adding fresh ones.
-    db.query(models.Load).filter(
-        models.Load.notes.like("AI-generated test load%"),
-        models.Load.origin_city == payload.origin_city,
-        models.Load.origin_state == payload.origin_state,
-        models.Load.destination_city == payload.destination_city,
-        models.Load.trailer_type == payload.trailer_type,
-    ).delete(synchronize_session=False)
-    count = max(1, min(payload.count, 16))
+    # Keep existing real/user-entered loads; add heuristic test loads for the current lane.
+    count = max(1, min(payload.count, 100))
     rows = generate_demo_loads(payload.origin_city, payload.origin_state, payload.destination_city, payload.trailer_type, count)
     db.add_all(rows)
     db.commit()
@@ -263,128 +207,35 @@ def api_generate_loads(payload: schemas.GenerateLoadsRequest, db: Session = Depe
 
 @app.post("/api/messages/email", response_model=schemas.MessageSendResponse)
 async def api_send_email(payload: schemas.MessageSendRequest):
-    return await send_email(payload.to, payload.subject or "Empty Mile AI Load Inquiry", payload.body)
+    return await send_email(payload.to, payload.subject or "Empty Mile AI Load Inquiry", (payload.body or payload.message or ''))
 
 @app.post("/api/messages/sms", response_model=schemas.MessageSendResponse)
 async def api_send_sms(payload: schemas.MessageSendRequest):
-    return await send_sms(payload.to, payload.body)
+    return await send_sms(payload.to, (payload.body or payload.message or ''))
 
+@app.post("/api/factoring/verify", response_model=schemas.FactoringVerifyResponse)
+async def api_verify_factoring(payload: schemas.FactoringVerifyRequest):
+    if not payload.factoring_email:
+        return {"status":"needs_manual_review","factoring_company":payload.factoring_company,"factoring_email":payload.factoring_email,"detail":"No factoring email provided. User selected Other / Not Listed."}
+    subject = f"Empty Mile AI factoring verification request - {payload.company_name}"
+    body = f"""Hello {payload.factoring_company} Team,
 
+{payload.company_name} has selected {payload.factoring_company} as their factoring company during Empty Mile AI onboarding.
 
-@app.get("/api/hiring/drivers")
-def list_hire_drivers():
-    return HIRE_DRIVER_POSTS
+Please confirm the carrier/factoring relationship and provide any preferred verification or remittance instructions for dispatch, broker communication, and payment workflow setup.
 
-@app.post("/api/hiring/drivers")
-def post_hire_driver(payload: dict):
-    kind = payload.get("type") or payload.get("need") or "CDL Driver"
-    row = {
-        "id": f"REQ-{int(datetime.utcnow().timestamp())}",
-        "name": payload.get("name") or f"{kind} request",
-        "type": kind,
-        "city": payload.get("city") or "Houston, TX",
-        "score": 0,
-        "points": 0,
-        "reviews": 0,
-        "experience": payload.get("experience") or "Open request",
-        "equipment": payload.get("equipment") or "Dry Van",
-        "status": "Hiring",
-        "rate": payload.get("rate") or payload.get("pay") or "$300/day",
-    }
-    HIRE_DRIVER_POSTS.insert(0, row)
-    return row
+Carrier / Company: {payload.company_name}
+Contact: {payload.contact_name or 'Not provided'}
+Contact Email: {payload.contact_email}
+User Role: {payload.role or 'Not provided'}
 
-@app.get("/api/hiring/trucks")
-def list_hire_trucks():
-    return HIRE_TRUCK_POSTS
+This is a one-time verification request initiated by the user during onboarding.
 
-@app.post("/api/hiring/trucks")
-def post_hire_truck(payload: dict):
-    row = {
-        "id": f"TRK-{int(datetime.utcnow().timestamp())}",
-        "owner": payload.get("owner") or "Independent Truck Owner",
-        "type": payload.get("type") or payload.get("truckType") or "26ft Box Truck",
-        "city": payload.get("city") or "Houston, TX",
-        "availability": payload.get("availability") or "Available now",
-        "rate": payload.get("rate") or payload.get("pay") or "$650/day",
-        "driverNeeded": payload.get("driverNeeded") or "Optional",
-        "verified": bool(payload.get("verified", False)),
-    }
-    HIRE_TRUCK_POSTS.insert(0, row)
-    return row
-
-@app.get("/api/hiring/reviews")
-def list_driver_reviews():
-    return DRIVER_REVIEWS
-
-@app.post("/api/hiring/reviews")
-def post_driver_review(payload: dict):
-    row = {
-        "employer": payload.get("employer") or "Verified Employer",
-        "driver": payload.get("driver") or "Driver",
-        "rating": int(payload.get("rating") or 5),
-        "points": int(payload.get("points") or 75),
-        "note": payload.get("note") or "Reliable completed load. Points added after employer review.",
-    }
-    DRIVER_REVIEWS.insert(0, row)
-    for driver in HIRE_DRIVER_POSTS:
-        if driver.get("name") == row["driver"]:
-            driver["points"] = int(driver.get("points") or 0) + row["points"]
-            driver["reviews"] = int(driver.get("reviews") or 0) + 1
-            driver["score"] = min(100, int(driver.get("score") or 80) + 1)
-    return row
-
-
-@app.get("/api/background/packages")
-def list_background_packages():
-    return BACKGROUND_PACKAGES
-
-@app.get("/api/background/checks")
-def list_background_checks():
-    return BACKGROUND_CHECKS
-
-@app.post("/api/background/checks")
-def request_background_check(payload: dict):
-    package_code = payload.get("package_code") or "driver_cdl_annual"
-    package = next((p for p in BACKGROUND_PACKAGES if p["code"] == package_code), BACKGROUND_PACKAGES[0])
-    subject = payload.get("subject") or payload.get("driver") or payload.get("company") or "Marketplace Applicant"
-    row = {
-        "id": f"BG-{int(datetime.utcnow().timestamp())}",
-        "subject": subject,
-        "subject_type": payload.get("subject_type") or package["subject_type"],
-        "package": package["name"],
-        "provider": payload.get("provider") or "Third-party verification partner placeholder",
-        "price": package["price"],
-        "status": "Payment Required",
-        "expires_at": None,
-        "renewal": package["renewal"],
-        "checks": package["checks"],
-        "paid": False,
-        "payment_note": "In production this starts Stripe checkout, then sends the applicant to Checkr/Yardstik/HireRight/Certn or another approved provider.",
-    }
-    BACKGROUND_CHECKS.insert(0, row)
-    return row
-
-@app.post("/api/background/checks/{check_id}/mark-paid")
-def mark_background_check_paid(check_id: str):
-    for row in BACKGROUND_CHECKS:
-        if row["id"] == check_id:
-            row["paid"] = True
-            row["status"] = "Processing with Third Party"
-            row["payment_note"] = "Payment captured. Verification request sent to selected provider."
-            return row
-    return {"error":"not_found", "id": check_id}
-
-@app.post("/api/background/checks/{check_id}/renew")
-def renew_background_check(check_id: str):
-    for row in BACKGROUND_CHECKS:
-        if row["id"] == check_id:
-            row["status"] = "Renewal Payment Required"
-            row["paid"] = False
-            row["expires_at"] = None
-            row["payment_note"] = "Annual renewal required before verified badge stays active."
-            return row
-    return {"error":"not_found", "id": check_id}
+Thank you,
+Empty Mile AI Dispatch Operations
+"""
+    res = await send_email(payload.factoring_email, subject, body)
+    return {"status":res.get("status","sent"),"factoring_company":payload.factoring_company,"factoring_email":payload.factoring_email,"detail":"Factoring verification email sent or simulated.","provider_response":res.get("provider_response")}
 
 @app.post("/documents", response_model=schemas.DocumentOut)
 async def upload_document(doc_type: str = Form(...), load_id: int | None = Form(None), file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -393,33 +244,3 @@ async def upload_document(doc_type: str = Form(...), load_id: int | None = Form(
     row = models.Document(load_id=load_id, doc_type=doc_type, filename=file.filename, parsed_summary=summary)
     db.add(row); db.commit(); db.refresh(row)
     return row
-
-
-@app.get("/documents", response_model=list[schemas.DocumentOut])
-@app.get("/api/documents", response_model=list[schemas.DocumentOut])
-def list_documents(db: Session = Depends(get_db)):
-    return db.query(models.Document).order_by(models.Document.id.desc()).all()
-
-@app.post("/api/documents/upload", response_model=schemas.DocumentOut)
-async def api_upload_document(doc_type: str = Form(...), load_id: int | None = Form(None), file: UploadFile = File(...), db: Session = Depends(get_db)):
-    return await upload_document(doc_type, load_id, file, db)
-
-@app.post("/api/documents/send-packet", response_model=schemas.MessageSendResponse)
-async def api_send_document_packet(payload: schemas.DocumentPacketRequest, db: Session = Depends(get_db)):
-    docs = db.query(models.Document).order_by(models.Document.id.desc()).limit(50).all()
-    doc_lines = "\n".join([f"- {d.doc_type}: {d.filename}" for d in docs]) or "- No documents uploaded yet."
-    body = payload.body or f"""Hello,
-
-Please see the carrier document packet summary from Empty Mile AI.
-
-Carrier: {payload.carrier_name}
-Dispatcher: {payload.dispatcher_name}
-Load/Lane: {payload.lane}
-
-Documents on file:
-{doc_lines}
-
-Empty Mile AI can resend individual files or rate confirmations as needed.
-
-Thank you."""
-    return await send_email(payload.to, payload.subject or f"Carrier packet - {payload.carrier_name}", body)

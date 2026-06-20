@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_name: str = "Empty Mile AI"
     database_url: str = "sqlite:///./empty_mile_ai.db"
-    cors_origins: str = "*"
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"

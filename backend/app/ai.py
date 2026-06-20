@@ -35,7 +35,7 @@ Return a practical answer with:
 """
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.gemini_model}:generateContent"
-        async with httpx.AsyncClient(timeout=12) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             res = await client.post(
                 url,
                 params={"key": settings.gemini_api_key},

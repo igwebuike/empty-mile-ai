@@ -1,78 +1,74 @@
-# Empty Mile AI — World-Class MVP Rebuild
+# Empty Mile AI - Voice Dispatcher MVP
 
-AI-native logistics platform for dispatchers, drivers, documents, messaging, voice commands, maps, and heuristic load matching.
+A Render-ready logistics AI MVP for reducing empty return miles.
 
-## Backend Render service
-Root Directory: `backend`
-Build Command: `pip install -r requirements.txt`
-Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+## What is included
 
-Recommended envs:
+- Sleek logistics dashboard UI inspired by the warehouse/robot interface
+- Voice command support using browser Web Speech API
+- Gemini-powered AI dispatcher
+- Google Maps route/profit support with fallback demo logic
+- Fleet KPIs, load recommendations, AI response, broker email draft, and driver message draft
+- FastAPI backend + Vite React frontend
+
+## Local backend
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
-DATABASE_URL=sqlite:///./empty_mile_ai.db
-CORS_ORIGINS=*
-GEMINI_API_KEY=
+
+Backend docs:
+
+```text
+http://localhost:8000/docs
+```
+
+## Local frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend:
+
+```text
+http://localhost:5173
+```
+
+## Environment variables
+
+Backend Render env:
+
+```env
+GEMINI_API_KEY=your_rotated_gemini_key
 GEMINI_MODEL=gemini-2.5-flash
-GOOGLE_MAPS_API_KEY=
-ROUTES_API_KEY=
-RESEND_API_KEY=
-FROM_EMAIL=dispatch@emptymileai.com
-TWILIO_ACCOUNT_SID=
-TWILIO_AUTH_TOKEN=
-TWILIO_FROM_NUMBER=
+GOOGLE_MAPS_API_KEY=your_rotated_maps_key
+DATABASE_URL=sqlite:///./empty_mile_ai.db
+CORS_ORIGINS=http://localhost:5173,https://your-frontend.onrender.com
 ```
 
-## Frontend Render static site
-Root Directory: `frontend`
-Build Command: `npm install && npm run build`
-Publish Directory: `dist`
+Frontend Render env:
 
-Recommended envs:
-```
-VITE_API_BASE_URL=https://api.emptymileai.com
-VITE_GOOGLE_MAPS_API_KEY=
-VITE_TEST_EMAIL=
-VITE_TEST_PHONE=
+```env
+VITE_API_BASE_URL=https://your-backend.onrender.com
 ```
 
-## Included features
-- Login / create workspace demo flow
-- Role-aware dashboards: Admin, Dispatcher, Driver, Broker
-- AI-first dispatcher command center
-- Browser speech recognition
-- Voice extraction via backend
-- Heuristic load generator
-- Load recommendations and broker/driver drafts
-- Resend email endpoint integration
-- Twilio SMS endpoint integration
-- Document Hub with upload endpoint
-- Messaging center for driver/broker/shipper
-- Google Maps embed when key is configured
-- Render-safe dependency pins
+## Voice command examples
 
-## Background Check / Paid Verification Marketplace
+Say:
 
-This build adds a paid verification workflow for drivers, truck owners, carriers and verified employers.
+```text
+Truck 104 is empty in Houston at 9 AM tomorrow. Find the most profitable return load to Dallas.
+```
 
-The MVP flow is intentionally safe/mocked:
+The UI will fill truck/unit/location/destination/trailer fields and ask the AI dispatcher for a recommendation.
 
-1. User selects a verification package.
-2. Platform creates a payment-required verification request.
-3. In production, connect Stripe checkout for payment.
-4. After payment, send the applicant to a third-party provider such as Checkr, Yardstik, HireRight, Certn, CarrierOK, FMCSA/MVR/insurance providers, or another approved verification partner.
-5. Verified badges renew annually.
+## Security note
 
-Suggested paid packages:
-
-- CDL Driver Annual Verification: $59/year
-- Non-CDL Driver Annual Verification: $39/year
-- Truck Owner / Company Verification: $79/year
-- Verified Employer Review Privilege: $99/year
-
-Backend endpoints:
-
-- GET /api/background/packages
-- GET /api/background/checks
-- POST /api/background/checks
-- POST /api/background/checks/{check_id}/mark-paid
-- POST /api/background/checks/{check_id}/renew
+If keys were ever shown in screenshots, regenerate/rotate them before using them in Render. Never commit real keys to GitHub.
