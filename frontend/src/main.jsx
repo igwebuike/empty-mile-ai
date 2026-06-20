@@ -6,7 +6,7 @@ import {
   Activity, Bell, Bot, Box, ChevronRight, Clock, DollarSign, FileText, Fuel,
   LayoutDashboard, Mail, Map, MapPin, Menu, MessageSquare, Mic, MicOff,
   Navigation, Package, Route, Send, Settings, ShieldCheck, Sparkles, TrendingUp,
-  Truck, UserRound, Volume2, X
+  Truck, UserRound, Volume2, X, LogOut, ClipboardCheck, Building2
 } from 'lucide-react';
 
 const DEFAULT_PROMPT = 'Truck 104 is empty in Houston at 9 AM tomorrow. Find the most profitable return load to Dallas.';
@@ -35,7 +35,7 @@ function StatCard({icon:Icon,label,value,delta,tone='cyan'}){
   </div>
 }
 
-function SideItem({icon:Icon,label,active}){return <div className={`sideItem ${active?'active':''}`}><Icon size={19}/><span>{label}</span></div>}
+function SideItem({icon:Icon,label,active,onClick}){return <button type="button" className={`sideItem ${active?'active':''}`} onClick={onClick}><Icon size={19}/><span>{label}</span></button>}
 
 function MatchCard({m, i, compact=false}){
   const load = m.load || {};
@@ -56,6 +56,80 @@ function MatchCard({m, i, compact=false}){
 }
 
 function LoadTile({l}){return <div className="loadTile"><b>{l.shipper_name}</b><p>{l.origin_city}, {l.origin_state} → {l.destination_city}, {l.destination_state}</p><small>{money(l.rate)} · {Number(l.weight_lbs||0).toLocaleString()} lbs · {l.trailer_type}</small></div>}
+
+function WorkspacePanel({panel,user,onUserUpdate,setPanel}){
+  const [form,setForm]=useState({
+    company_name:user.company_name || 'Demo Logistics LLC',
+    contact_name:user.contact_name || 'Eugene Ebem',
+    contact_email:user.email || 'dispatch@example.com',
+    factoring_company:user.factoring_company || 'Apex Capital Corp',
+    factoring_email:user.factoring_email || 'verification@apexcapitalcorp.com'
+  });
+  const [status,setStatus]=useState('');
+  function update(k,v){setForm(prev=>({...prev,[k]:v}))}
+  function changeFactoring(name){
+    const f=FACTORING_COMPANIES.find(x=>x.name===name)||FACTORING_COMPANIES[0];
+    setForm(prev=>({...prev,factoring_company:f.name,factoring_email:f.email}));
+  }
+  async function saveAndVerify(){
+    setStatus('Sending one-time factoring verification email...');
+    const next={...user,...form,email:form.contact_email};
+    localStorage.setItem('empty_mile_user', JSON.stringify(next));
+    onUserUpdate(next);
+    try{
+      const res=await api('/api/factoring/verify',{method:'POST',body:JSON.stringify({
+        company_name:form.company_name,
+        contact_name:form.contact_name,
+        contact_email:form.contact_email,
+        factoring_company:form.factoring_company,
+        factoring_email:form.factoring_email,
+        role:user.role || 'Dispatcher'
+      })});
+      setStatus(`Factoring verification ${res.status || 'sent'}: ${res.detail || 'Email sent or mocked.'}`);
+    }catch(err){
+      setStatus(`Saved locally. Verification email failed: ${err.message}`);
+    }
+  }
+  if(panel==='factoring' || panel==='settings'){
+    return <section className="workspacePanel">
+      <div className="panelHero"><div><h1><Building2 size={30}/> Factoring Company Setup</h1><p>Select the carrier factoring company once. Empty Mile AI sends a verification email to confirm the relationship, NOA/remittance instructions, and dispatch workflow details.</p></div><button onClick={()=>setPanel('dashboard')}>Back to Dashboard</button></div>
+      <div className="panelGrid">
+        <div className="glassCard formCard">
+          <h2>Company Onboarding</h2>
+          <label>Company Name</label><input value={form.company_name} onChange={e=>update('company_name',e.target.value)}/>
+          <label>Contact Name</label><input value={form.contact_name} onChange={e=>update('contact_name',e.target.value)}/>
+          <label>Contact Email</label><input value={form.contact_email} onChange={e=>update('contact_email',e.target.value)}/>
+          <label>Factoring Company</label><select value={form.factoring_company} onChange={e=>changeFactoring(e.target.value)}>{FACTORING_COMPANIES.map(f=><option key={f.name}>{f.name}</option>)}</select>
+          <label>Verification Email</label><input value={form.factoring_email} onChange={e=>update('factoring_email',e.target.value)} placeholder="verification@factoringcompany.com"/>
+          <button className="primaryWide" onClick={saveAndVerify}><Mail size={18}/> Save & Send Verification Email</button>
+          {status && <p className="statusLine">{status}</p>}
+        </div>
+        <div className="glassCard">
+          <h2><ClipboardCheck size={22}/> Verification Email Includes</h2>
+          <ul className="checkList">
+            <li>Carrier/company name and contact</li>
+            <li>Selected factoring company</li>
+            <li>Request to confirm active factoring relationship</li>
+            <li>Request for NOA/remittance instructions</li>
+            <li>Broker communication/payment workflow setup</li>
+          </ul>
+          <div className="noteBox"><ShieldCheck size={18}/> Admin role is not available on public login. Admin access should be created privately later from the database or an internal invite.</div>
+        </div>
+      </div>
+    </section>
+  }
+  const content={
+    dispatcher:['AI Dispatcher','Use the main dashboard voice command box to speak truck availability, find loads, generate broker emails, and send driver SMS.'],
+    loads:['Loads','Generated heuristic loads and future DAT/Truckstop loads will show here. Use Find Best Loads on the dashboard now.'],
+    fleet:['Fleet','Truck, driver, document, and dispatch status management will live here.'],
+    map:['Map','Google Maps live fleet tracking and route lines will live here once map keys are set.'],
+    analytics:['Analytics','Revenue recovered, empty miles saved, RPM, utilization, lane profitability, and factoring performance will live here.'],
+    messages:['Messages','Broker emails and driver SMS history will live here.'],
+    documents:['Documents','Driver CDL, insurance, W9, authority, registration, rate confirmations, POD, and factoring NOA will be uploaded here.']
+  }[panel] || ['Workspace','Select a workspace section.'];
+  return <section className="workspacePanel"><div className="panelHero"><div><h1>{content[0]}</h1><p>{content[1]}</p></div><button onClick={()=>setPanel('dashboard')}>Back to Dashboard</button></div></section>
+}
+
 
 function parseVoiceToTruck(text){
   const lower = text.toLowerCase();
@@ -140,6 +214,8 @@ function AuthGate({onLogin}){
 
 function App(){
   const [user,setUser]=useState(()=>{try{return JSON.parse(localStorage.getItem('empty_mile_user')||'null')}catch{return null}});
+  function updateUser(next){ setUser(next); localStorage.setItem('empty_mile_user', JSON.stringify(next)); }
+  function logout(){ localStorage.removeItem('empty_mile_user'); setUser(null); }
   const [dashboard,setDashboard]=useState({});
   const [trucks,setTrucks]=useState([]);
   const [loads,setLoads]=useState([]);
@@ -166,7 +242,7 @@ function App(){
   }
   useEffect(()=>{ if(user) refresh().catch(console.error) },[user]);
 
-  if(!user) return <AuthGate onLogin={setUser}/>;
+  if(!user) return <AuthGate onLogin={updateUser}/>;
 
   function speak(text){
     try{
@@ -287,15 +363,16 @@ function App(){
     <aside className="sidebar">
       <div className="logoMark"><div className="hex"><Bot size={26}/></div><div><b>EMPTY MILE AI</b><span>AI Powered Freight Optimization</span></div></div>
       <nav>
-        <SideItem icon={LayoutDashboard} label="Dashboard" active={panel==='dashboard'} />
-        <SideItem icon={Sparkles} label="AI Dispatcher" />
-        <SideItem icon={Package} label="Loads" />
-        <SideItem icon={Truck} label="Fleet" />
-        <SideItem icon={Map} label="Map" />
-        <SideItem icon={Activity} label="Analytics" />
-        <SideItem icon={Mail} label="Messages" />
-        <SideItem icon={FileText} label="Documents" />
-        <SideItem icon={Settings} label="Settings" />
+        <SideItem icon={LayoutDashboard} label="Dashboard" active={panel==='dashboard'} onClick={()=>setPanel('dashboard')} />
+        <SideItem icon={Sparkles} label="AI Dispatcher" active={panel==='dispatcher'} onClick={()=>setPanel('dispatcher')} />
+        <SideItem icon={Package} label="Loads" active={panel==='loads'} onClick={()=>setPanel('loads')} />
+        <SideItem icon={Truck} label="Fleet" active={panel==='fleet'} onClick={()=>setPanel('fleet')} />
+        <SideItem icon={Map} label="Map" active={panel==='map'} onClick={()=>setPanel('map')} />
+        <SideItem icon={Activity} label="Analytics" active={panel==='analytics'} onClick={()=>setPanel('analytics')} />
+        <SideItem icon={Mail} label="Messages" active={panel==='messages'} onClick={()=>setPanel('messages')} />
+        <SideItem icon={FileText} label="Documents" active={panel==='documents'} onClick={()=>setPanel('documents')} />
+        <SideItem icon={Building2} label="Factoring" active={panel==='factoring'} onClick={()=>setPanel('factoring')} />
+        <SideItem icon={Settings} label="Settings" active={panel==='settings'} onClick={()=>setPanel('settings')} />
       </nav>
       <div className="statusCard"><span className="greenDot"></span><b>System Status</b><p>Gemini, Maps, email, SMS, and dispatcher tools ready.</p><small>Factoring: {user.factoring_company || 'Not selected'}</small><div className="miniRobot"><Bot size={34}/></div></div>
     </aside>
@@ -308,9 +385,10 @@ function App(){
           <div><b>{listening?'Listening...':'Voice Command Ready'}</b><small>{voiceSupported?'Tap and say: Truck 104 is empty in Houston, find Dallas return load':'Voice not supported in this browser'}</small></div>
           <div className="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </div>
-        <div className="topActions"><button><Bell size={20}/><em>3</em></button><button><ShieldCheck size={20}/></button><div className="profile"><UserRound size={23}/><div><b>{user.role}</b><small>{user.company_name || 'Houston Ops'}</small></div></div></div>
+        <div className="topActions"><button title="Notifications"><Bell size={20}/><em>3</em></button><button title="Security"><ShieldCheck size={20}/></button><div className="profile"><UserRound size={23}/><div><b>{user.role}</b><small>{user.company_name || 'Houston Ops'}</small></div></div><button className="logoutBtn" title="Logout" onClick={logout}><LogOut size={20}/></button></div>
       </header>
 
+      {panel === 'dashboard' ? <>
       <div className="heroStrip">
         <div><h1>Welcome back, Dispatcher</h1><p>Optimize empty miles. Maximize profit. Let the AI listen, fill the truck details, and recommend the best return load.</p></div>
         <button onClick={runMatches} disabled={busy}><Sparkles size={18}/>{busy?'Working...':'Find Best Loads'}</button>
@@ -355,6 +433,7 @@ function App(){
         <div className="glassCard"><div className="cardTitle"><h2>Broker Email Draft</h2><button onClick={sendBrokerEmail} disabled={!brokerEmail || busy}><Mail size={17}/>Send</button></div><pre>{brokerEmail || 'Ask the dispatcher to rank a load. The broker email will generate here.'}</pre></div>
         <div className="glassCard"><div className="cardTitle"><h2>Driver Message Draft</h2><button onClick={sendDriverSms} disabled={!driverMessage || busy}><MessageSquare size={17}/>SMS</button></div><pre>{driverMessage || 'Ask the dispatcher to rank a load. The driver message will generate here.'}</pre>{sendStatus && <p className="sendStatus">{sendStatus}</p>}</div>
       </section>
+      </> : <WorkspacePanel panel={panel} user={user} onUserUpdate={updateUser} setPanel={setPanel}/>} 
     </section>
   </div>
 }
