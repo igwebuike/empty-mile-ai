@@ -57,7 +57,7 @@ function MatchCard({m, i, compact=false}){
 
 function LoadTile({l}){return <div className="loadTile"><b>{l.shipper_name}</b><p>{l.origin_city}, {l.origin_state} → {l.destination_city}, {l.destination_state}</p><small>{money(l.rate)} · {Number(l.weight_lbs||0).toLocaleString()} lbs · {l.trailer_type}</small></div>}
 
-function WorkspacePanel({panel,user,onUserUpdate,setPanel}){
+function WorkspacePanel({panel,user,onUserUpdate,setPanel,dashboard={},loads=[],trucks=[],matches=[],onRunMatches,onAsk}){
   const [form,setForm]=useState({
     company_name:user.company_name || 'Demo Logistics LLC',
     contact_name:user.contact_name || 'Eugene Ebem',
@@ -118,16 +118,45 @@ function WorkspacePanel({panel,user,onUserUpdate,setPanel}){
       </div>
     </section>
   }
-  const content={
-    dispatcher:['AI Dispatcher','Use the main dashboard voice command box to speak truck availability, find loads, generate broker emails, and send driver SMS.'],
-    loads:['Loads','Generated heuristic loads and future DAT/Truckstop loads will show here. Use Find Best Loads on the dashboard now.'],
-    fleet:['Fleet','Truck, driver, document, and dispatch status management will live here.'],
-    map:['Map','Google Maps live fleet tracking and route lines will live here once map keys are set.'],
-    analytics:['Analytics','Revenue recovered, empty miles saved, RPM, utilization, lane profitability, and factoring performance will live here.'],
-    messages:['Messages','Broker emails and driver SMS history will live here.'],
-    documents:['Documents','Driver CDL, insurance, W9, authority, registration, rate confirmations, POD, and factoring NOA will be uploaded here.']
-  }[panel] || ['Workspace','Select a workspace section.'];
-  return <section className="workspacePanel"><div className="panelHero"><div><h1>{content[0]}</h1><p>{content[1]}</p></div><button onClick={()=>setPanel('dashboard')}>Back to Dashboard</button></div></section>
+  const generatedLoads = loads.length ? loads : [
+    {id:'demo-1',shipper_name:'Capital City Freight',origin_city:'Houston',origin_state:'TX',destination_city:'Dallas',destination_state:'TX',rate:1450,weight_lbs:12000,trailer_type:'Dry Van'},
+    {id:'demo-2',shipper_name:'Lone Star Foods',origin_city:'Houston',origin_state:'TX',destination_city:'Fort Worth',destination_state:'TX',rate:1100,weight_lbs:8000,trailer_type:'Dry Van'},
+    {id:'demo-3',shipper_name:'Austin Retail Supply',origin_city:'Houston',origin_state:'TX',destination_city:'Austin',destination_state:'TX',rate:900,weight_lbs:6000,trailer_type:'Dry Van'}
+  ];
+  const fleetRows = trucks.length ? trucks : [
+    {id:1,unit_number:'TX-104',current_city:'Houston',current_state:'TX',desired_destination_city:'Dallas',trailer_type:'Dry Van',available_at:'Tomorrow 9 AM'},
+    {id:2,unit_number:'TX-107',current_city:'Austin',current_state:'TX',desired_destination_city:'Houston',trailer_type:'Reefer',available_at:'Today 4 PM'}
+  ];
+  const pageTitle = {
+    dispatcher:'AI Dispatcher', loads:'Loads Marketplace', fleet:'Fleet', map:'Live Map', analytics:'Analytics', messages:'Messages', documents:'Documents'
+  }[panel] || 'Workspace';
+  const pageSub = {
+    dispatcher:'Voice-first dispatch commands, Gemini recommendations, broker email drafts, and driver SMS actions.',
+    loads:'Generated heuristic loads now. DAT, Truckstop, 123Loadboard, and broker feeds can plug into this same table later.',
+    fleet:'Manage trucks, trailer types, current location, desired destination, and availability.',
+    map:'Route view for Houston, Dallas, Austin, San Antonio, and future live fleet tracking.',
+    analytics:'Revenue recovered, empty miles saved, RPM, utilization, lane profitability, and factoring performance.',
+    messages:'Broker email and driver SMS workflow center powered by Resend and Twilio.',
+    documents:'Upload and track CDL, insurance, W9, authority, registration, rate confirmations, POD, and factoring NOA.'
+  }[panel] || 'Select a workspace section.';
+
+  function WorkspaceContent(){
+    if(panel==='dispatcher') return <div className="panelGrid three">
+      <div className="glassCard"><h2><Mic size={22}/> Voice Flow</h2><p className="muted">Say: “Truck 104 is empty in Houston tomorrow morning. Find me a Dallas return load.”</p><button className="primaryWide" onClick={onAsk}><Sparkles size={18}/> Run Dispatcher Demo</button></div>
+      <div className="glassCard"><h2><Bot size={22}/> Gemini Tasks</h2><ul className="checkList"><li>Extract truck details</li><li>Generate loads</li><li>Rank by profit</li><li>Draft broker email</li><li>Draft driver SMS</li></ul></div>
+      <div className="glassCard"><h2><Send size={22}/> Next Action</h2><p className="muted">Use the dashboard Ask button after speaking or typing a command.</p></div>
+    </div>;
+    if(panel==='loads') return <div className="workspaceGridCards">{generatedLoads.map(l=><LoadTile key={l.id} l={l}/>)}</div>;
+    if(panel==='fleet') return <div className="tableCard glassCard"><h2><Truck size={22}/> Active Fleet</h2><table><thead><tr><th>Unit</th><th>Location</th><th>Destination</th><th>Trailer</th><th>Available</th></tr></thead><tbody>{fleetRows.map(t=><tr key={t.id}><td>{t.unit_number}</td><td>{t.current_city}, {t.current_state}</td><td>{t.desired_destination_city || 'Any'}</td><td>{t.trailer_type}</td><td>{t.available_at || 'Now'}</td></tr>)}</tbody></table></div>;
+    if(panel==='map') return <div className="panelGrid"><div className="glassCard mapCard wideMap"><h2><Map size={22}/> Fleet Route Map</h2><div className="mapMock"><span className="city dallas">DALLAS</span><span className="city waco">WACO</span><span className="city austin">AUSTIN</span><span className="city houston">HOUSTON</span><svg viewBox="0 0 600 420" preserveAspectRatio="none"><path d="M470 370 C420 330 410 285 390 245 C360 190 315 175 280 145 C240 110 220 70 180 40"/><circle cx="470" cy="370" r="10"/><circle cx="180" cy="40" r="10"/><circle cx="330" cy="210" r="9"/></svg></div></div><div className="glassCard"><h2><Route size={22}/> Route Intelligence</h2><ul className="checkList"><li>Deadhead miles</li><li>Loaded miles</li><li>ETA</li><li>Fuel estimate</li><li>Profit scoring</li></ul></div></div>;
+    if(panel==='analytics') return <div className="analyticsGrid"><StatCard icon={DollarSign} label="Revenue Recovered" value={money(dashboard.estimated_revenue_recovered || 12219)} delta="From matched return loads"/><StatCard icon={Route} label="Empty Miles Saved" value={`${Number(dashboard.empty_miles_saved || 1398).toLocaleString()} mi`} delta="Estimated from matches"/><StatCard icon={TrendingUp} label="Avg Profit / Load" value="$842" delta="Heuristic scoring"/><StatCard icon={Fuel} label="Fuel Saved" value="$1,870" delta="Based on 8 MPG"/></div>;
+    if(panel==='messages') return <div className="panelGrid"><div className="glassCard"><h2><Mail size={22}/> Broker Emails</h2><p className="muted">Resend sends broker inquiries, rate requests, and factoring verification emails.</p><pre>Subject: Carrier available for Houston → Dallas
+
+Truck TX-104 is available near Houston. Please send load details, rate confirmation, pickup address, and detention terms.</pre></div><div className="glassCard"><h2><MessageSquare size={22}/> Driver SMS</h2><p className="muted">Twilio sends dispatch instructions, pickup reminders, and delivery updates.</p><pre>Return load found: Houston → Dallas. Rate $1,450. Stand by for pickup details.</pre></div></div>;
+    if(panel==='documents') return <div className="workspaceGridCards">{['CDL','Insurance COI','W9','MC Authority','Registration','Rate Confirmation','Proof of Delivery','Factoring NOA'].map(x=><div className="docTile glassCard" key={x}><FileText size={28}/><b>{x}</b><p className="muted">Upload, verify, and attach to dispatch workflow.</p><button>Upload</button></div>)}</div>;
+    return null;
+  }
+  return <section className="workspacePanel"><div className="panelHero"><div><h1>{pageTitle}</h1><p>{pageSub}</p></div><button onClick={()=>setPanel('dashboard')}>Back to Dashboard</button></div><WorkspaceContent/></section>
 }
 
 
@@ -385,7 +414,7 @@ function App(){
           <div><b>{listening?'Listening...':'Voice Command Ready'}</b><small>{voiceSupported?'Tap and say: Truck 104 is empty in Houston, find Dallas return load':'Voice not supported in this browser'}</small></div>
           <div className="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </div>
-        <div className="topActions"><button title="Notifications"><Bell size={20}/><em>3</em></button><button title="Security"><ShieldCheck size={20}/></button><div className="profile"><UserRound size={23}/><div><b>{user.role}</b><small>{user.company_name || 'Houston Ops'}</small></div></div><button className="logoutBtn" title="Logout" onClick={logout}><LogOut size={20}/></button></div>
+        <div className="topActions"><button title="Notifications"><Bell size={20}/><em>3</em></button><button title="Security"><ShieldCheck size={20}/></button><div className="profile"><UserRound size={23}/><div><b>{user.role}</b><small>{user.company_name || 'Houston Ops'}</small></div></div><button className="logoutBtn" title="Logout" onClick={logout}><LogOut size={20}/><span>Logout</span></button></div>
       </header>
 
       {panel === 'dashboard' ? <>
@@ -433,7 +462,7 @@ function App(){
         <div className="glassCard"><div className="cardTitle"><h2>Broker Email Draft</h2><button onClick={sendBrokerEmail} disabled={!brokerEmail || busy}><Mail size={17}/>Send</button></div><pre>{brokerEmail || 'Ask the dispatcher to rank a load. The broker email will generate here.'}</pre></div>
         <div className="glassCard"><div className="cardTitle"><h2>Driver Message Draft</h2><button onClick={sendDriverSms} disabled={!driverMessage || busy}><MessageSquare size={17}/>SMS</button></div><pre>{driverMessage || 'Ask the dispatcher to rank a load. The driver message will generate here.'}</pre>{sendStatus && <p className="sendStatus">{sendStatus}</p>}</div>
       </section>
-      </> : <WorkspacePanel panel={panel} user={user} onUserUpdate={updateUser} setPanel={setPanel}/>} 
+      </> : <WorkspacePanel panel={panel} user={user} onUserUpdate={updateUser} setPanel={setPanel} dashboard={dashboard} loads={loads} trucks={trucks} matches={matches} onRunMatches={runMatches} onAsk={()=>askDispatcher()}/>} 
     </section>
   </div>
 }
