@@ -409,10 +409,19 @@ function App(){
     <section className="mainPanel">
       <header className="topbar">
         <button className="menuBtn"><Menu size={21}/></button>
-        <div className={`voicePill ${listening?'live':''}`} onClick={listening?stopVoice:startVoice}>
-          <span className="micCircle">{listening?<MicOff size={25}/>:<Mic size={25}/>}</span>
-          <div><b>{listening?'Listening...':'Voice Command Ready'}</b><small>{voiceSupported?'Tap and say: Truck 104 is empty in Houston, find Dallas return load':'Voice not supported in this browser'}</small></div>
-          <div className="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <div className={`commandCenter ${listening?'live':''}`}>
+          <button type="button" className="micCircle commandMic" onClick={listening?stopVoice:startVoice} title={listening?'Stop listening':'Start voice command'}>{listening?<MicOff size={25}/>:<Mic size={25}/>}</button>
+          <div className="commandText">
+            <div className="commandTitle"><b>{listening?'Listening...':'Voice + Typed Command Center'}</b><span>{voiceSupported?'Speak or type dispatch instructions':'Voice not supported; type instructions below'}</span></div>
+            <textarea
+              aria-label="Dispatcher instructions"
+              value={message}
+              onChange={e=>setMessage(e.target.value)}
+              placeholder="Type or say: Truck 104 is empty in Houston tomorrow at 9 AM. Find the best Dallas return load."
+            />
+          </div>
+          <button type="button" className="commandAsk" onClick={()=>askDispatcher()} disabled={busy}>{busy?'Working...':'Run AI'}</button>
+          <div className="wave commandWave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </div>
         <div className="topActions"><button title="Notifications"><Bell size={20}/><em>3</em></button><button title="Security"><ShieldCheck size={20}/></button><div className="profile"><UserRound size={23}/><div><b>{user.role}</b><small>{user.company_name || 'Houston Ops'}</small></div></div><button className="logoutBtn" title="Logout" onClick={logout}><LogOut size={20}/><span>Logout</span></button></div>
       </header>
